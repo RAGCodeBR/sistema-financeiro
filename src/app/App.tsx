@@ -335,8 +335,14 @@ export default function App() {
           </div>
         </header>
 
-        {/* Scrollable body */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+        {/* Dashboard intentionally reset: new flow will be added here. */}
+        <div
+          className="flex-1 overflow-y-auto px-6 py-5 space-y-5"
+          aria-label="Área de conteúdo do dashboard"
+        >
+
+          {false && (
+            <>
 
           {/* ── Hero Banner ── */}
           <div className="rounded-2xl bg-gradient-to-br from-[#0d47a1] via-[#1565c0] to-[#1e88e5] p-6 text-white shadow-xl">
@@ -726,6 +732,9 @@ export default function App() {
               ))}
             </div>
           </div>
+
+            </>
+          )}
 
         </div>
       </main>
