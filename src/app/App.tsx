@@ -40,22 +40,17 @@ const NAV_ITEMS = [
 ];
 
 const MONTHLY_DATA = [
-  { month: "Janeiro", orders: 842, percent: 60, growth: "+12,5%", value: "R$ 72K" },
-  { month: "Fevereiro", orders: 1024, percent: 73, growth: "+22,2%", value: "R$ 88K" },
-  { month: "Março", orders: 1156, percent: 80, growth: "+8,1%", value: "R$ 95K" },
+  { month: "Janeiro", orders: 0, percent: 0, growth: "0,0%", value: "R$ 0,00" },
+  { month: "Fevereiro", orders: 0, percent: 0, growth: "0,0%", value: "R$ 0,00" },
+  { month: "Março", orders: 0, percent: 0, growth: "0,0%", value: "R$ 0,00" },
 ];
 
-const RECENT_ACTIVITY = [
-  { name: "Carlos Silva", action: "efetuou um pagamento de", amount: "R$ 1.850", time: "2 minutos atrás", initials: "CS", color: "bg-blue-500", sign: "-" },
-  { name: "Maria Santos", action: "registrou uma receita de", amount: "R$ 3.200", time: "15 minutos atrás", initials: "MS", color: "bg-green-500", sign: "+" },
-  { name: "Pedro Costa", action: "realizou uma transferência de", amount: "R$ 560", time: "32 minutos atrás", initials: "PC", color: "bg-purple-500", sign: "-" },
-  { name: "Ana Oliveira", action: "pagou uma fatura de", amount: "R$ 420", time: "1 hora atrás", initials: "AO", color: "bg-orange-500", sign: "-" },
-];
+const RECENT_ACTIVITY: Array<{ name: string; action: string; amount: string; time: string; initials: string; color: string; sign: string }> = [];
 
 const TOP_CONTAS = [
-  { rank: 1, name: "Folha de Pagamento", initials: "FP", color: "bg-blue-600", amount: "R$ 28.400", detail: "1.024 lançamentos • +8,2%" },
-  { rank: 2, name: "Aluguel & Instalações", initials: "AI", color: "bg-indigo-500", amount: "R$ 12.800", detail: "876 lançamentos • +4,5%" },
-  { rank: 3, name: "Fornecedores", initials: "FN", color: "bg-cyan-500", amount: "R$ 9.600", detail: "654 lançamentos • +7,1%" },
+  { rank: 1, name: "Sem lançamentos", initials: "—", color: "bg-blue-600", amount: "R$ 0,00", detail: "0 lançamentos • 0,0%" },
+  { rank: 2, name: "Sem lançamentos", initials: "—", color: "bg-indigo-500", amount: "R$ 0,00", detail: "0 lançamentos • 0,0%" },
+  { rank: 3, name: "Sem lançamentos", initials: "—", color: "bg-cyan-500", amount: "R$ 0,00", detail: "0 lançamentos • 0,0%" },
 ];
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
@@ -341,9 +336,6 @@ export default function App() {
           aria-label="Área de conteúdo do dashboard"
         >
 
-          {false && (
-            <>
-
           {/* ── Hero Banner ── */}
           <div className="rounded-2xl bg-gradient-to-br from-[#0d47a1] via-[#1565c0] to-[#1e88e5] p-6 text-white shadow-xl">
             <div className="flex flex-wrap items-start justify-between gap-4 mb-5">
@@ -367,10 +359,10 @@ export default function App() {
 
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               {[
-                { label: "Pedidos de Hoje", value: "47", icon: "🛒", change: "+12% de ontem" },
-                { label: "Novos Clientes", value: "23", icon: "👥", change: "+8% de ontem" },
-                { label: "Receita Hoje", value: "R$ 84K", icon: "💰", change: "+18% de ontem" },
-                { label: "Taxa de Conversão", value: "3,24%", icon: "📈", change: "+0,4% de ontem" },
+                { label: "Pedidos de Hoje", value: "0", icon: "🛒", change: "0,0% de ontem" },
+                { label: "Novos Clientes", value: "0", icon: "👥", change: "0,0% de ontem" },
+                { label: "Receita Hoje", value: "R$ 0,00", icon: "💰", change: "0,0% de ontem" },
+                { label: "Taxa de Conversão", value: "0,00%", icon: "📈", change: "0,0% de ontem" },
               ].map((s) => (
                 <div key={s.label} className="bg-white/15 backdrop-blur-sm rounded-2xl px-4 py-3.5">
                   <div className="flex items-center gap-2 mb-2">
@@ -389,12 +381,12 @@ export default function App() {
             {[
               {
                 label: "Usuários Totais",
-                value: "12.543",
+                value: "0",
                 sub: "Usuários ativos",
-                change: "+12,5%",
-                progress: 75,
+                change: "0,0%",
+                progress: 0,
                 vsLabel: "vs. mês anterior",
-                vsValue: "11.156",
+                vsValue: "0",
                 color: "text-blue-500",
                 barColor: "bg-blue-500",
                 Icon: TrendingUp,
@@ -402,12 +394,12 @@ export default function App() {
               },
               {
                 label: "Total de Produtos",
-                value: "3.842",
+                value: "0",
                 sub: "Itens cadastrados",
-                change: "+8,2%",
-                progress: 62,
+                change: "0,0%",
+                progress: 0,
                 vsLabel: "vs. mês anterior",
-                vsValue: "3.551",
+                vsValue: "0",
                 color: "text-green-500",
                 barColor: "bg-green-500",
                 Icon: Tag,
@@ -415,12 +407,12 @@ export default function App() {
               },
               {
                 label: "Total de Pedidos",
-                value: "9.238",
+                value: "0",
                 sub: "Neste mês",
-                change: "+15,3%",
-                progress: 85,
+                change: "0,0%",
+                progress: 0,
                 vsLabel: "vs. mês anterior",
-                vsValue: "8.012",
+                vsValue: "0",
                 color: "text-orange-500",
                 barColor: "bg-orange-500",
                 Icon: CreditCard,
@@ -428,12 +420,12 @@ export default function App() {
               },
               {
                 label: "Receita Total",
-                value: "R$ 2,4M",
+                value: "R$ 0,00",
                 sub: "Resultado líquido",
-                change: "+23,1%",
-                progress: 90,
+                change: "0,0%",
+                progress: 0,
                 vsLabel: "vs. mês anterior",
-                vsValue: "R$ 1.95M",
+                vsValue: "R$ 0,00",
                 color: "text-purple-500",
                 barColor: "bg-purple-500",
                 Icon: DollarSign,
@@ -521,10 +513,10 @@ export default function App() {
               {/* Metric chips */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {[
-                  { label: "Receita Total", value: "R$ 640K", icon: "💰", bg: "bg-blue-50", text: "text-blue-700" },
-                  { label: "Taxa de Crescimento", value: "+18,5%", icon: "📊", bg: "bg-green-50", text: "text-green-700" },
-                  { label: "Média/Mês", value: "R$ 213K", icon: "📅", bg: "bg-purple-50", text: "text-purple-700" },
-                  { label: "Total de Pedidos", value: "3.022", icon: "🛒", bg: "bg-orange-50", text: "text-orange-700" },
+                  { label: "Receita Total", value: "R$ 0,00", icon: "💰", bg: "bg-blue-50", text: "text-blue-700" },
+                  { label: "Taxa de Crescimento", value: "0,0%", icon: "📊", bg: "bg-green-50", text: "text-green-700" },
+                  { label: "Média/Mês", value: "R$ 0,00", icon: "📅", bg: "bg-purple-50", text: "text-purple-700" },
+                  { label: "Total de Pedidos", value: "0", icon: "🛒", bg: "bg-orange-50", text: "text-orange-700" },
                 ].map((chip) => (
                   <div key={chip.label} className={`${chip.bg} rounded-xl p-3`}>
                     <span className="text-lg">{chip.icon}</span>
@@ -566,6 +558,9 @@ export default function App() {
                     </div>
                   </div>
                 ))}
+                {RECENT_ACTIVITY.length === 0 && (
+                  <p className="py-6 text-center text-[12px] font-medium text-gray-400">Nenhuma atividade registrada.</p>
+                )}
               </div>
 
               <button className="w-full mt-4 text-center text-[12px] font-bold text-[#1565c0] hover:text-blue-800 transition-colors">
@@ -671,14 +666,14 @@ export default function App() {
               </div>
               <span className="flex items-center gap-1.5 text-[12px] font-bold text-red-500">
                 <span className="w-2 h-2 bg-red-500 rounded-full" />
-                25 Pendentes
+                0 Pendentes
               </span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {[
                 {
                   title: "Aprovação de Despesas",
-                  count: 12,
+                  count: 0,
                   desc: "Despesas aguardando aprovação do gestor",
                   bg: "bg-orange-50",
                   border: "border-orange-100",
@@ -690,7 +685,7 @@ export default function App() {
                 },
                 {
                   title: "Conciliação Bancária",
-                  count: 8,
+                  count: 0,
                   desc: "Transações pendentes de conciliação",
                   bg: "bg-blue-50",
                   border: "border-blue-100",
@@ -702,7 +697,7 @@ export default function App() {
                 },
                 {
                   title: "Cobranças em Atraso",
-                  count: 5,
+                  count: 0,
                   desc: "Contas vencidas que precisam de ação",
                   bg: "bg-red-50",
                   border: "border-red-100",
@@ -732,9 +727,6 @@ export default function App() {
               ))}
             </div>
           </div>
-
-            </>
-          )}
 
         </div>
       </main>
