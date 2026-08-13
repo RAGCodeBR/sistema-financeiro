@@ -1,31 +1,27 @@
 import { useState } from "react";
 import {
-  LayoutDashboard,
-  TrendingDown,
-  TrendingUp,
-  CreditCard,
-  Wallet,
+  AlertCircle,
   ArrowLeftRight,
   BarChart2,
-  Tag,
-  Settings,
   Bell,
-  Search,
-  Download,
-  RefreshCw,
+  Building2,
   ChevronDown,
-  Menu,
-  X,
-  DollarSign,
   Clock,
-  AlertCircle,
+  CreditCard,
+  Download,
+  LayoutDashboard,
+  Menu,
+  RefreshCw,
+  Search,
+  Settings,
+  Tag,
+  TrendingDown,
+  TrendingUp,
+  Wallet,
+  X,
 } from "lucide-react";
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
 type ModalType = "despesa" | "receita" | "transferencia" | null;
-
-// ─── Static data ─────────────────────────────────────────────────────────────
 
 const NAV_ITEMS = [
   { icon: LayoutDashboard, label: "Dashboard", id: "dashboard" },
@@ -39,699 +35,71 @@ const NAV_ITEMS = [
   { icon: Settings, label: "Configurações", id: "configuracoes" },
 ];
 
-const MONTHLY_DATA = [
-  { month: "Janeiro", orders: 0, percent: 0, growth: "0,0%", value: "R$ 0,00" },
-  { month: "Fevereiro", orders: 0, percent: 0, growth: "0,0%", value: "R$ 0,00" },
-  { month: "Março", orders: 0, percent: 0, growth: "0,0%", value: "R$ 0,00" },
+const UNITS = [
+  { name: "Consultoria", plan: "Plano de contas: Consultoria", initials: "CO", color: "bg-blue-600", tint: "border-blue-100 bg-blue-50", accent: "text-blue-700" },
+  { name: "Sítio", plan: "Plano de contas: Sítio", initials: "SI", color: "bg-emerald-600", tint: "border-emerald-100 bg-emerald-50", accent: "text-emerald-700" },
+  { name: "Indefinido 1", plan: "Plano de contas: a definir", initials: "I1", color: "bg-violet-600", tint: "border-violet-100 bg-violet-50", accent: "text-violet-700" },
+  { name: "Indefinido 2", plan: "Plano de contas: a definir", initials: "I2", color: "bg-amber-500", tint: "border-amber-100 bg-amber-50", accent: "text-amber-700" },
 ];
-
-const RECENT_ACTIVITY: Array<{ name: string; action: string; amount: string; time: string; initials: string; color: string; sign: string }> = [];
-
-const TOP_CONTAS = [
-  { rank: 1, name: "Sem lançamentos", initials: "—", color: "bg-blue-600", amount: "R$ 0,00", detail: "0 lançamentos • 0,0%" },
-  { rank: 2, name: "Sem lançamentos", initials: "—", color: "bg-indigo-500", amount: "R$ 0,00", detail: "0 lançamentos • 0,0%" },
-  { rank: 3, name: "Sem lançamentos", initials: "—", color: "bg-cyan-500", amount: "R$ 0,00", detail: "0 lançamentos • 0,0%" },
-];
-
-// ─── Modal ────────────────────────────────────────────────────────────────────
 
 function Modal({ type, onClose }: { type: ModalType; onClose: () => void }) {
   if (!type) return null;
-
-  const configs = {
-    despesa: {
-      title: "Nova Despesa",
-      color: "text-red-600",
-      btnClass: "bg-red-600 hover:bg-red-700",
-      showTransfer: false,
-    },
-    receita: {
-      title: "Nova Receita",
-      color: "text-green-600",
-      btnClass: "bg-green-600 hover:bg-green-700",
-      showTransfer: false,
-    },
-    transferencia: {
-      title: "Nova Transferência",
-      color: "text-blue-700",
-      btnClass: "bg-blue-700 hover:bg-blue-800",
-      showTransfer: true,
-    },
-  };
-
-  const cfg = configs[type];
-
+  const title = type === "despesa" ? "Nova Despesa" : type === "receita" ? "Nova Receita" : "Nova Transferência";
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <h2 className={`text-lg font-bold ${cfg.color}`}>{cfg.title}</h2>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+          <h2 className="font-bold text-[#14213d]">{title}</h2>
+          <button onClick={onClose} className="rounded-lg p-2 text-gray-400 hover:bg-gray-100"><X className="h-4 w-4" /></button>
         </div>
-
-        <div className="px-6 py-5 space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Descrição</label>
-            <input
-              type="text"
-              placeholder={type === "transferencia" ? "Ex: Transferência entre contas" : "Ex: Pagamento de fornecedor"}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Valor (R$)</label>
-              <input
-                type="number"
-                placeholder="0,00"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Data</label>
-              <input
-                type="date"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-              />
-            </div>
-          </div>
-
-          {!cfg.showTransfer && (
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Categoria</label>
-              <select className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition">
-                <option value="">Selecione uma categoria</option>
-                <option>Salários</option>
-                <option>Fornecedores</option>
-                <option>Aluguel</option>
-                <option>Serviços</option>
-                <option>Impostos</option>
-                <option>Outros</option>
-              </select>
-            </div>
-          )}
-
-          {!cfg.showTransfer && (
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Conta</label>
-              <select className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition">
-                <option>Conta Corrente Principal</option>
-                <option>Conta Poupança</option>
-                <option>Cartão Empresarial</option>
-              </select>
-            </div>
-          )}
-
-          {cfg.showTransfer && (
-            <>
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Conta Origem</label>
-                <select className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition">
-                  <option>Conta Corrente Principal</option>
-                  <option>Conta Poupança</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Conta Destino</label>
-                <select className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition">
-                  <option>Conta Poupança</option>
-                  <option>Conta Corrente Principal</option>
-                </select>
-              </div>
-            </>
-          )}
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Observações</label>
-            <textarea
-              rows={2}
-              placeholder="Observações opcionais..."
-              className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition resize-none"
-            />
-          </div>
+        <div className="space-y-4 px-6 py-5 text-sm">
+          <label className="block font-semibold text-gray-600">Local / empresa<select className="mt-1.5 w-full rounded-xl border border-gray-200 bg-gray-50 p-2.5 font-normal"><option>Selecione o local</option>{UNITS.map((unit) => <option key={unit.name}>{unit.name}</option>)}</select></label>
+          <label className="block font-semibold text-gray-600">Descrição<input className="mt-1.5 w-full rounded-xl border border-gray-200 bg-gray-50 p-2.5 font-normal" placeholder="Descreva o lançamento" /></label>
+          <div className="grid grid-cols-2 gap-3"><label className="font-semibold text-gray-600">Valor<input type="number" className="mt-1.5 w-full rounded-xl border border-gray-200 bg-gray-50 p-2.5 font-normal" placeholder="R$ 0,00" /></label><label className="font-semibold text-gray-600">Data<input type="date" className="mt-1.5 w-full rounded-xl border border-gray-200 bg-gray-50 p-2.5 font-normal" /></label></div>
         </div>
-
-        <div className="flex gap-3 px-6 py-4 bg-gray-50 border-t border-gray-100">
-          <button
-            onClick={onClose}
-            className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-colors"
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={onClose}
-            className={`flex-1 py-2.5 rounded-xl text-sm font-semibold text-white transition-colors ${cfg.btnClass}`}
-          >
-            Salvar
-          </button>
-        </div>
+        <div className="flex gap-3 border-t border-gray-100 bg-gray-50 px-6 py-4"><button onClick={onClose} className="flex-1 rounded-xl border border-gray-200 py-2.5 font-semibold text-gray-600">Cancelar</button><button onClick={onClose} className="flex-1 rounded-xl bg-blue-700 py-2.5 font-semibold text-white">Salvar</button></div>
       </div>
     </div>
   );
 }
 
-// ─── App ──────────────────────────────────────────────────────────────────────
+function FinancialDashboard({ onModal }: { onModal: (type: ModalType) => void }) {
+  const [period, setPeriod] = useState<"mes" | "ano">("mes");
+  const today = new Date().toLocaleDateString("pt-BR", { day: "numeric", month: "long", year: "numeric" });
+  const totals = [
+    { label: "Receitas", value: "R$ 0,00", sub: "Entradas consolidadas", Icon: TrendingUp, color: "text-emerald-600", bg: "bg-emerald-50" },
+    { label: "Despesas", value: "R$ 0,00", sub: "Saídas consolidadas", Icon: TrendingDown, color: "text-red-600", bg: "bg-red-50" },
+    { label: "Contas a Pagar", value: "R$ 0,00", sub: "0 títulos pendentes", Icon: CreditCard, color: "text-orange-600", bg: "bg-orange-50" },
+    { label: "Contas a Receber", value: "R$ 0,00", sub: "0 títulos pendentes", Icon: Wallet, color: "text-blue-600", bg: "bg-blue-50" },
+  ];
+  return <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
+    <section className="rounded-2xl bg-gradient-to-br from-[#0d47a1] via-[#1565c0] to-[#1e88e5] p-6 text-white shadow-xl">
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-4"><div><p className="mb-1 text-xs font-bold uppercase tracking-[0.16em] text-blue-200">Visão consolidada</p><h2 className="text-[22px] font-extrabold">Financeiro por empresa e plano de contas</h2><p className="mt-1 text-[13px] font-medium text-blue-200">Acompanhe entradas, saídas e compromissos de cada local.</p></div><div className="flex items-center gap-2"><span className="hidden rounded-full bg-white/20 px-3 py-1.5 text-xs font-semibold sm:inline">{today}</span><button className="flex items-center gap-1.5 rounded-xl bg-white/20 px-3 py-1.5 text-xs font-semibold hover:bg-white/30"><Download className="h-3.5 w-3.5" />Exportar</button><button className="rounded-xl bg-white/20 p-2 hover:bg-white/30"><RefreshCw className="h-3.5 w-3.5" /></button></div></div>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{totals.map(({ label, value, sub, Icon }) => <div key={label} className="rounded-2xl bg-white/15 px-4 py-3.5"><div className="mb-2 flex items-center gap-2 text-blue-100"><Icon className="h-4 w-4" /><span className="text-[11px] font-semibold">{label}</span></div><p className="text-xl font-extrabold">{value}</p><p className="mt-0.5 text-[11px] font-medium text-blue-200">{sub}</p></div>)}</div>
+    </section>
+
+    <section className="grid grid-cols-1 gap-4 lg:grid-cols-4">{UNITS.map((unit) => <article key={unit.name} className={`rounded-2xl border p-4 shadow-sm ${unit.tint}`}><div className="mb-4 flex items-start justify-between"><div className={`flex h-10 w-10 items-center justify-center rounded-xl text-xs font-extrabold text-white ${unit.color}`}>{unit.initials}</div><span className={`rounded-full bg-white/80 px-2.5 py-1 text-[10px] font-bold ${unit.accent}`}>Plano próprio</span></div><h3 className="font-extrabold text-[#14213d]">{unit.name}</h3><p className="mt-0.5 text-[11px] font-medium text-gray-500">{unit.plan}</p><div className="mt-4 grid grid-cols-2 gap-2 border-t border-black/5 pt-3 text-[11px]"><div><p className="text-gray-400">Receitas</p><p className="mt-0.5 font-extrabold text-emerald-600">R$ 0,00</p></div><div><p className="text-gray-400">Despesas</p><p className="mt-0.5 font-extrabold text-red-600">R$ 0,00</p></div><div><p className="text-gray-400">A pagar</p><p className="mt-0.5 font-extrabold text-orange-600">R$ 0,00</p></div><div><p className="text-gray-400">A receber</p><p className="mt-0.5 font-extrabold text-blue-600">R$ 0,00</p></div></div></article>)}</section>
+
+    <section className="grid grid-cols-1 gap-4 lg:grid-cols-[1.45fr_1fr]"><article className="rounded-2xl border border-black/[0.06] bg-white p-5 shadow-sm"><div className="mb-5 flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-extrabold text-[#14213d]">Resultado por empresa</h3><p className="mt-0.5 text-xs font-medium text-gray-400">Receitas e despesas organizadas pelos respectivos planos de contas.</p></div><div className="flex overflow-hidden rounded-xl border border-gray-200 text-xs font-bold"><button onClick={() => setPeriod("mes")} className={`px-3.5 py-1.5 ${period === "mes" ? "bg-[#1565c0] text-white" : "text-gray-500"}`}>Este mês</button><button onClick={() => setPeriod("ano")} className={`px-3.5 py-1.5 ${period === "ano" ? "bg-[#1565c0] text-white" : "text-gray-500"}`}>Este ano</button></div></div><div className="space-y-4">{UNITS.map((unit) => <div key={unit.name}><div className="mb-1.5 flex justify-between text-xs"><span className="font-bold text-gray-700">{unit.name}<span className="ml-2 font-normal text-gray-400">Receitas R$ 0,00 · Despesas R$ 0,00</span></span><span className="font-extrabold text-gray-500">Resultado R$ 0,00</span></div><div className="h-7 overflow-hidden rounded-xl bg-gray-100"><div className="h-full w-0 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-400" /></div></div>)}</div></article>
+      <article className="rounded-2xl border border-black/[0.06] bg-white p-5 shadow-sm"><h3 className="font-extrabold text-[#14213d]">Planos de contas</h3><p className="mt-0.5 text-xs font-medium text-gray-400">Identificação para a leitura correta de cada saldo.</p><div className="mt-4 space-y-2">{UNITS.map((unit) => <div key={unit.name} className="flex items-center gap-3 rounded-xl border border-gray-100 p-3"><div className={`flex h-8 w-8 items-center justify-center rounded-lg text-[10px] font-extrabold text-white ${unit.color}`}>{unit.initials}</div><div className="min-w-0"><p className="text-xs font-bold text-gray-800">{unit.name}</p><p className="truncate text-[11px] font-medium text-gray-400">{unit.plan}</p></div></div>)}</div></article></section>
+
+    <section className="grid grid-cols-1 gap-4 lg:grid-cols-2"><article className="rounded-2xl border border-black/[0.06] bg-white p-5 shadow-sm"><div className="mb-4 flex items-center justify-between"><div><h3 className="font-extrabold text-[#14213d]">Contas a pagar por local</h3><p className="mt-0.5 text-xs font-medium text-gray-400">Compromissos de cada empresa.</p></div><span className="text-xs font-bold text-orange-600">R$ 0,00 total</span></div><div className="space-y-2">{UNITS.map((unit) => <div key={unit.name} className="flex items-center justify-between rounded-xl bg-orange-50/60 px-3 py-2.5"><span className="text-xs font-bold text-gray-700">{unit.name}</span><span className="text-xs font-extrabold text-orange-600">R$ 0,00 · 0 títulos</span></div>)}</div></article>
+      <article className="rounded-2xl border border-black/[0.06] bg-white p-5 shadow-sm"><div className="mb-4 flex items-center justify-between"><div><h3 className="font-extrabold text-[#14213d]">Contas a receber por local</h3><p className="mt-0.5 text-xs font-medium text-gray-400">Entradas previstas de cada empresa.</p></div><span className="text-xs font-bold text-blue-600">R$ 0,00 total</span></div><div className="space-y-2">{UNITS.map((unit) => <div key={unit.name} className="flex items-center justify-between rounded-xl bg-blue-50/60 px-3 py-2.5"><span className="text-xs font-bold text-gray-700">{unit.name}</span><span className="text-xs font-extrabold text-blue-600">R$ 0,00 · 0 títulos</span></div>)}</div></article></section>
+
+    <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[{ label: "Nova Despesa", sub: "Registrar saída", Icon: TrendingDown, className: "from-red-500 to-red-600", type: "despesa" as ModalType }, { label: "Nova Receita", sub: "Registrar entrada", Icon: TrendingUp, className: "from-emerald-500 to-emerald-600", type: "receita" as ModalType }, { label: "Transferência", sub: "Entre contas", Icon: ArrowLeftRight, className: "from-blue-600 to-blue-700", type: "transferencia" as ModalType }, { label: "Configurar planos", sub: "Por empresa", Icon: Settings, className: "from-violet-600 to-violet-700", type: null }].map((action) => <button key={action.label} onClick={() => action.type && onModal(action.type)} className={`rounded-2xl bg-gradient-to-br p-4 text-left text-white shadow-sm transition hover:opacity-90 ${action.className}`}><action.Icon className="mb-2.5 h-6 w-6" /><p className="text-sm font-bold">{action.label}</p><p className="mt-0.5 text-[11px] font-medium opacity-70">{action.sub}</p></button>)}</section>
+
+    <section className="rounded-2xl border border-black/[0.06] bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><div><h3 className="font-extrabold text-[#14213d]">Pendências financeiras</h3><p className="mt-0.5 text-xs font-medium text-gray-400">Aprovações, conciliações e cobranças de todas as empresas.</p></div><span className="flex items-center gap-1.5 text-xs font-bold text-gray-400"><AlertCircle className="h-4 w-4" />0 pendências</span></div><div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">{[["Aprovação de despesas", "0 aguardando aprovação", Clock, "text-orange-500 bg-orange-50"], ["Conciliação bancária", "0 transações pendentes", CreditCard, "text-blue-600 bg-blue-50"], ["Cobranças em atraso", "0 contas vencidas", AlertCircle, "text-red-500 bg-red-50"]].map(([title, description, Icon, style]) => { const CardIcon = Icon as typeof Clock; return <div key={title as string} className="rounded-xl border border-gray-100 p-3.5"><div className={`mb-3 flex h-9 w-9 items-center justify-center rounded-xl ${style as string}`}><CardIcon className="h-4.5 w-4.5" /></div><p className="text-xs font-extrabold text-gray-800">{title as string}</p><p className="mt-1 text-[11px] font-medium text-gray-400">{description as string}</p></div>})}</div></section>
+  </div>;
+}
 
 export default function App() {
   const [activeNav, setActiveNav] = useState("dashboard");
-  const [activePeriod, setActivePeriod] = useState<"mes" | "ano">("mes");
   const [modal, setModal] = useState<ModalType>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  const today = new Date().toLocaleDateString("pt-BR", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
-  const todayCapitalized = today.charAt(0).toUpperCase() + today.slice(1);
-
-  const handleNavClick = (id: string) => {
-    setActiveNav(id);
-    setSidebarOpen(false);
-    if (id === "nova-despesa") setModal("despesa");
-    else if (id === "nova-receita") setModal("receita");
-    else if (id === "transferencias") setModal("transferencia");
-  };
-
-  return (
-    <div
-      className="flex h-screen overflow-hidden bg-[#f0f2f5]"
-      style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
-    >
-      {/* Mobile overlay */}
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-20 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-
-      {/* ── Sidebar ── */}
-      <aside
-        className={`fixed lg:relative z-30 flex flex-col w-[210px] h-full bg-[#14213d] text-white shrink-0 transition-transform duration-300
-          ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}
-      >
-        {/* Brand */}
-        <div className="flex items-center justify-between px-5 py-5 border-b border-white/10">
-          <div>
-            <p className="font-extrabold text-[15px] tracking-tight">FinancePro</p>
-            <p className="text-[11px] text-blue-300/70 mt-0.5 font-medium">Painel Financeiro</p>
-          </div>
-          <button
-            onClick={() => setSidebarOpen(false)}
-            className="lg:hidden w-7 h-7 flex items-center justify-center rounded-md hover:bg-white/10 transition"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Nav */}
-        <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-          {NAV_ITEMS.map(({ icon: Icon, label, id }) => {
-            const active = activeNav === id;
-            return (
-              <button
-                key={id}
-                onClick={() => handleNavClick(id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-semibold transition-all
-                  ${active
-                    ? "bg-blue-600 text-white shadow-lg shadow-blue-900/40"
-                    : "text-white/60 hover:bg-white/10 hover:text-white"
-                  }`}
-              >
-                <Icon className="w-[18px] h-[18px] shrink-0" />
-                <span>{label}</span>
-              </button>
-            );
-          })}
-        </nav>
-
-        {/* User */}
-        <div className="px-4 py-4 border-t border-white/10">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-sm font-bold shrink-0">
-              A
-            </div>
-            <div className="min-w-0">
-              <p className="text-[13px] font-semibold truncate">Admin User</p>
-              <p className="text-[11px] text-blue-300/60 truncate">admin@financepro.com</p>
-            </div>
-          </div>
-        </div>
-      </aside>
-
-      {/* ── Main Content ── */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-
-        {/* Header */}
-        <header className="flex items-center justify-between px-6 py-3.5 bg-white border-b border-black/[0.07] shrink-0">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setSidebarOpen(true)}
-              className="lg:hidden w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition"
-            >
-              <Menu className="w-5 h-5 text-gray-600" />
-            </button>
-            <div>
-              <h1 className="text-[17px] font-extrabold text-[#14213d]">Dashboard</h1>
-              <p className="text-[12px] text-gray-400 font-medium hidden sm:block">Gerencie suas finanças aqui</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2.5">
-            <div className="hidden md:flex items-center gap-2 px-3.5 py-2 bg-gray-100 rounded-xl w-52">
-              <Search className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-              <input
-                type="text"
-                placeholder="Pesquisar..."
-                className="bg-transparent text-sm text-gray-600 placeholder-gray-400 outline-none w-full"
-              />
-            </div>
-
-            <button className="relative w-9 h-9 flex items-center justify-center rounded-xl hover:bg-gray-100 transition-colors">
-              <Bell className="w-[18px] h-[18px] text-gray-600" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white" />
-            </button>
-
-            <button className="flex items-center gap-2 px-3 py-1.5 rounded-xl hover:bg-gray-100 transition-colors">
-              <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold">
-                A
-              </div>
-              <span className="text-[13px] font-semibold text-gray-700 hidden sm:block">Seu Nome</span>
-              <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
-            </button>
-          </div>
-        </header>
-
-        {/* Dashboard intentionally reset: new flow will be added here. */}
-        <div
-          className="flex-1 overflow-y-auto px-6 py-5 space-y-5"
-          aria-label="Área de conteúdo do dashboard"
-        >
-
-          {/* ── Hero Banner ── */}
-          <div className="rounded-2xl bg-gradient-to-br from-[#0d47a1] via-[#1565c0] to-[#1e88e5] p-6 text-white shadow-xl">
-            <div className="flex flex-wrap items-start justify-between gap-4 mb-5">
-              <div>
-                <h2 className="text-[22px] font-extrabold mb-1">Bem-vindo de volta, Admin</h2>
-                <p className="text-blue-200 text-[13px] font-medium">Aqui está o resumo financeiro do seu negócio</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-[12px] font-semibold bg-white/20 px-3 py-1.5 rounded-full hidden sm:inline-flex">
-                  {todayCapitalized}
-                </span>
-                <button className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 transition text-[12px] font-semibold px-3 py-1.5 rounded-xl">
-                  <Download className="w-3.5 h-3.5" />
-                  Exportar
-                </button>
-                <button className="w-8 h-8 flex items-center justify-center bg-white/20 hover:bg-white/30 transition rounded-xl">
-                  <RefreshCw className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              {[
-                { label: "Pedidos de Hoje", value: "0", icon: "🛒", change: "0,0% de ontem" },
-                { label: "Novos Clientes", value: "0", icon: "👥", change: "0,0% de ontem" },
-                { label: "Receita Hoje", value: "R$ 0,00", icon: "💰", change: "0,0% de ontem" },
-                { label: "Taxa de Conversão", value: "0,00%", icon: "📈", change: "0,0% de ontem" },
-              ].map((s) => (
-                <div key={s.label} className="bg-white/15 backdrop-blur-sm rounded-2xl px-4 py-3.5">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-base">{s.icon}</span>
-                    <span className="text-[11px] text-blue-200 font-semibold">{s.label}</span>
-                  </div>
-                  <p className="text-[20px] font-extrabold">{s.value}</p>
-                  <p className="text-[11px] text-blue-300 mt-0.5 font-medium">{s.change}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* ── KPI Cards ── */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {[
-              {
-                label: "Usuários Totais",
-                value: "0",
-                sub: "Usuários ativos",
-                change: "0,0%",
-                progress: 0,
-                vsLabel: "vs. mês anterior",
-                vsValue: "0",
-                color: "text-blue-500",
-                barColor: "bg-blue-500",
-                Icon: TrendingUp,
-                iconBg: "bg-blue-50",
-              },
-              {
-                label: "Total de Produtos",
-                value: "0",
-                sub: "Itens cadastrados",
-                change: "0,0%",
-                progress: 0,
-                vsLabel: "vs. mês anterior",
-                vsValue: "0",
-                color: "text-green-500",
-                barColor: "bg-green-500",
-                Icon: Tag,
-                iconBg: "bg-green-50",
-              },
-              {
-                label: "Total de Pedidos",
-                value: "0",
-                sub: "Neste mês",
-                change: "0,0%",
-                progress: 0,
-                vsLabel: "vs. mês anterior",
-                vsValue: "0",
-                color: "text-orange-500",
-                barColor: "bg-orange-500",
-                Icon: CreditCard,
-                iconBg: "bg-orange-50",
-              },
-              {
-                label: "Receita Total",
-                value: "R$ 0,00",
-                sub: "Resultado líquido",
-                change: "0,0%",
-                progress: 0,
-                vsLabel: "vs. mês anterior",
-                vsValue: "R$ 0,00",
-                color: "text-purple-500",
-                barColor: "bg-purple-500",
-                Icon: DollarSign,
-                iconBg: "bg-purple-50",
-              },
-            ].map((card) => (
-              <div key={card.label} className="bg-white rounded-2xl p-4 shadow-sm border border-black/[0.06] hover:shadow-md transition-shadow">
-                <div className="flex items-center justify-between mb-3">
-                  <div className={`w-9 h-9 ${card.iconBg} rounded-xl flex items-center justify-center`}>
-                    <card.Icon className={`w-[18px] h-[18px] ${card.color}`} />
-                  </div>
-                  <span className={`text-[12px] font-bold ${card.color} bg-opacity-10`}>{card.change}</span>
-                </div>
-                <p className="text-[22px] font-extrabold text-[#14213d] leading-tight mb-0.5">{card.value}</p>
-                <p className="text-[11px] text-gray-400 font-medium mb-3">{card.sub}</p>
-                <div className="space-y-1.5">
-                  <div className="flex justify-between text-[11px] text-gray-400 font-medium">
-                    <span>Progresso</span>
-                    <span>{card.progress}%</span>
-                  </div>
-                  <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full ${card.barColor} rounded-full`}
-                      style={{ width: `${card.progress}%` }}
-                    />
-                  </div>
-                  <div className="flex justify-between text-[11px] text-gray-400 font-medium">
-                    <span>{card.vsLabel}</span>
-                    <span>{card.vsValue}</span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* ── Analytics + Live Activity ── */}
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-4">
-
-            {/* Analytics */}
-            <div className="bg-white rounded-2xl p-5 shadow-sm border border-black/[0.06]">
-              <div className="flex items-start justify-between mb-5">
-                <div>
-                  <h3 className="text-[15px] font-extrabold text-[#14213d]">Análise de Receitas</h3>
-                  <p className="text-[12px] text-gray-400 font-medium mt-0.5">Métricas de desempenho de receita</p>
-                </div>
-                <div className="flex rounded-xl overflow-hidden border border-gray-200 text-[12px] font-bold">
-                  <button
-                    onClick={() => setActivePeriod("mes")}
-                    className={`px-3.5 py-1.5 transition-colors ${activePeriod === "mes" ? "bg-[#1565c0] text-white" : "text-gray-500 hover:bg-gray-50"}`}
-                  >
-                    Este Mês
-                  </button>
-                  <button
-                    onClick={() => setActivePeriod("ano")}
-                    className={`px-3.5 py-1.5 transition-colors ${activePeriod === "ano" ? "bg-[#1565c0] text-white" : "text-gray-500 hover:bg-gray-50"}`}
-                  >
-                    Este Ano
-                  </button>
-                </div>
-              </div>
-
-              {/* Horizontal bar chart */}
-              <div className="space-y-4 mb-5">
-                {MONTHLY_DATA.map((row) => (
-                  <div key={row.month}>
-                    <div className="flex justify-between text-[12px] mb-1.5">
-                      <span className="font-semibold text-gray-700">
-                        {row.month}{" "}
-                        <span className="text-gray-400 font-normal">• {row.orders.toLocaleString("pt-BR")} pedidos</span>
-                      </span>
-                      <span className="font-bold text-green-500">{row.growth} &nbsp; {row.value}</span>
-                    </div>
-                    <div className="relative h-8 bg-gray-100 rounded-xl overflow-hidden">
-                      <div
-                        className="absolute inset-y-0 left-0 bg-gradient-to-r from-[#1565c0] to-[#42a5f5] rounded-xl flex items-center justify-end pr-3"
-                        style={{ width: `${row.percent}%` }}
-                      >
-                        <span className="text-white text-[12px] font-extrabold">{row.percent}%</span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Metric chips */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {[
-                  { label: "Receita Total", value: "R$ 0,00", icon: "💰", bg: "bg-blue-50", text: "text-blue-700" },
-                  { label: "Taxa de Crescimento", value: "0,0%", icon: "📊", bg: "bg-green-50", text: "text-green-700" },
-                  { label: "Média/Mês", value: "R$ 0,00", icon: "📅", bg: "bg-purple-50", text: "text-purple-700" },
-                  { label: "Total de Pedidos", value: "0", icon: "🛒", bg: "bg-orange-50", text: "text-orange-700" },
-                ].map((chip) => (
-                  <div key={chip.label} className={`${chip.bg} rounded-xl p-3`}>
-                    <span className="text-lg">{chip.icon}</span>
-                    <p className={`text-[15px] font-extrabold ${chip.text} mt-1`}>{chip.value}</p>
-                    <p className="text-[11px] text-gray-500 font-medium">{chip.label}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Live Activity */}
-            <div className="bg-white rounded-2xl p-5 shadow-sm border border-black/[0.06]">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h3 className="text-[15px] font-extrabold text-[#14213d]">Atividade Recente</h3>
-                  <p className="text-[12px] text-gray-400 font-medium mt-0.5">Atualizações em tempo real</p>
-                </div>
-                <span className="flex items-center gap-1.5 text-[11px] font-bold text-green-600">
-                  <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                  Ao vivo
-                </span>
-              </div>
-
-              <div className="space-y-3.5">
-                {RECENT_ACTIVITY.map((item, i) => (
-                  <div key={i} className="flex items-start gap-3 pb-3.5 border-b border-gray-100 last:border-0 last:pb-0">
-                    <div className={`w-8 h-8 ${item.color} rounded-full flex items-center justify-center text-white text-[11px] font-extrabold shrink-0`}>
-                      {item.initials}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-[12px] text-gray-700 leading-snug">
-                        <span className="font-bold text-gray-800">{item.name}</span>{" "}
-                        {item.action}{" "}
-                        <span className={`font-bold ${item.sign === "+" ? "text-green-600" : "text-blue-600"}`}>
-                          {item.sign}{item.amount}
-                        </span>
-                      </p>
-                      <p className="text-[11px] text-gray-400 mt-0.5 font-medium">{item.time}</p>
-                    </div>
-                  </div>
-                ))}
-                {RECENT_ACTIVITY.length === 0 && (
-                  <p className="py-6 text-center text-[12px] font-medium text-gray-400">Nenhuma atividade registrada.</p>
-                )}
-              </div>
-
-              <button className="w-full mt-4 text-center text-[12px] font-bold text-[#1565c0] hover:text-blue-800 transition-colors">
-                Ver Todas as Atividades →
-              </button>
-            </div>
-          </div>
-
-          {/* ── Quick Actions + Top Contas ── */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
-            {/* Quick Actions */}
-            <div className="bg-white rounded-2xl p-5 shadow-sm border border-black/[0.06]">
-              <div className="mb-4">
-                <h3 className="text-[15px] font-extrabold text-[#14213d]">Ações Rápidas</h3>
-                <p className="text-[12px] text-gray-400 font-medium mt-0.5">Tarefas financeiras mais utilizadas</p>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  {
-                    label: "Nova Despesa",
-                    sub: "Registrar saída",
-                    Icon: TrendingDown,
-                    bg: "from-blue-600 to-blue-700",
-                    modal: "despesa" as ModalType,
-                  },
-                  {
-                    label: "Nova Receita",
-                    sub: "Registrar entrada",
-                    Icon: TrendingUp,
-                    bg: "from-green-500 to-green-600",
-                    modal: "receita" as ModalType,
-                  },
-                  {
-                    label: "Ver Relatórios",
-                    sub: "Dados analíticos",
-                    Icon: BarChart2,
-                    bg: "from-orange-500 to-orange-600",
-                    modal: null,
-                  },
-                  {
-                    label: "Configurações",
-                    sub: "Ajustar sistema",
-                    Icon: Settings,
-                    bg: "from-purple-600 to-purple-700",
-                    modal: null,
-                  },
-                ].map((action) => (
-                  <button
-                    key={action.label}
-                    onClick={() => action.modal && setModal(action.modal)}
-                    className={`bg-gradient-to-br ${action.bg} rounded-2xl p-4 text-white text-left hover:opacity-90 active:scale-[0.97] transition-all shadow-sm`}
-                  >
-                    <action.Icon className="w-6 h-6 mb-2.5 opacity-90" />
-                    <p className="text-[13px] font-bold">{action.label}</p>
-                    <p className="text-[11px] opacity-70 mt-0.5 font-medium">{action.sub}</p>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Top Contas */}
-            <div className="bg-white rounded-2xl p-5 shadow-sm border border-black/[0.06]">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h3 className="text-[15px] font-extrabold text-[#14213d]">Principais Contas</h3>
-                  <p className="text-[12px] text-gray-400 font-medium mt-0.5">Maiores valores do mês</p>
-                </div>
-                <button className="text-[12px] font-bold text-[#1565c0] hover:text-blue-800 transition-colors">
-                  Ver Todas →
-                </button>
-              </div>
-              <div className="space-y-1">
-                {TOP_CONTAS.map((conta) => (
-                  <div
-                    key={conta.rank}
-                    className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-gray-50 transition-colors cursor-pointer group"
-                  >
-                    <span className="text-[12px] font-extrabold text-gray-300 w-4 shrink-0 text-center">{conta.rank}</span>
-                    <div className={`w-9 h-9 ${conta.color} rounded-xl flex items-center justify-center text-white text-[11px] font-extrabold shrink-0`}>
-                      {conta.initials}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[13px] font-bold text-gray-800 truncate">{conta.name}</p>
-                      <p className="text-[11px] text-gray-400 font-medium">{conta.detail}</p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-[13px] font-extrabold text-gray-800">{conta.amount}</p>
-                      <p className="text-[11px] text-gray-400 font-medium">Despesa</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* ── Ações Pendentes ── */}
-          <div className="bg-white rounded-2xl p-5 shadow-sm border border-black/[0.06]">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-[15px] font-extrabold text-[#14213d]">Ações Pendentes</h3>
-                <p className="text-[12px] text-gray-400 font-medium mt-0.5">Itens que requerem sua atenção imediata</p>
-              </div>
-              <span className="flex items-center gap-1.5 text-[12px] font-bold text-red-500">
-                <span className="w-2 h-2 bg-red-500 rounded-full" />
-                0 Pendentes
-              </span>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {[
-                {
-                  title: "Aprovação de Despesas",
-                  count: 0,
-                  desc: "Despesas aguardando aprovação do gestor",
-                  bg: "bg-orange-50",
-                  border: "border-orange-100",
-                  badge: "bg-orange-500",
-                  btn: "bg-orange-500 hover:bg-orange-600",
-                  Icon: Clock,
-                  iconColor: "text-orange-500",
-                  iconBg: "bg-orange-100",
-                },
-                {
-                  title: "Conciliação Bancária",
-                  count: 0,
-                  desc: "Transações pendentes de conciliação",
-                  bg: "bg-blue-50",
-                  border: "border-blue-100",
-                  badge: "bg-blue-600",
-                  btn: "bg-blue-800 hover:bg-blue-900",
-                  Icon: CreditCard,
-                  iconColor: "text-blue-600",
-                  iconBg: "bg-blue-100",
-                },
-                {
-                  title: "Cobranças em Atraso",
-                  count: 0,
-                  desc: "Contas vencidas que precisam de ação",
-                  bg: "bg-red-50",
-                  border: "border-red-100",
-                  badge: "bg-red-500",
-                  btn: "bg-red-500 hover:bg-red-600",
-                  Icon: AlertCircle,
-                  iconColor: "text-red-500",
-                  iconBg: "bg-red-100",
-                },
-              ].map((item) => (
-                <div
-                  key={item.title}
-                  className={`${item.bg} ${item.border} border rounded-2xl p-4 relative`}
-                >
-                  <span className={`absolute top-3.5 right-3.5 ${item.badge} text-white text-[11px] font-extrabold w-6 h-6 rounded-full flex items-center justify-center`}>
-                    {item.count}
-                  </span>
-                  <div className={`w-10 h-10 ${item.iconBg} rounded-xl flex items-center justify-center mb-3`}>
-                    <item.Icon className={`w-5 h-5 ${item.iconColor}`} />
-                  </div>
-                  <h4 className="text-[13px] font-extrabold text-gray-800 mb-1">{item.title}</h4>
-                  <p className="text-[12px] text-gray-500 font-medium mb-4 leading-snug">{item.desc}</p>
-                  <button className={`w-full py-2 rounded-xl text-white text-[12px] font-bold transition-colors ${item.btn}`}>
-                    Revisar Agora →
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-
-        </div>
-      </main>
-
-      <Modal type={modal} onClose={() => setModal(null)} />
-    </div>
-  );
+  const handleNavClick = (id: string) => { setActiveNav(id); setSidebarOpen(false); if (id === "nova-despesa") setModal("despesa"); if (id === "nova-receita") setModal("receita"); if (id === "transferencias") setModal("transferencia"); };
+  return <div className="flex h-screen overflow-hidden bg-[#f0f2f5]" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+    {sidebarOpen && <div className="fixed inset-0 z-20 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />}
+    <aside className={`fixed z-30 flex h-full w-[210px] shrink-0 flex-col bg-[#14213d] text-white transition-transform duration-300 lg:relative ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}><div className="flex items-center justify-between border-b border-white/10 px-5 py-5"><div><p className="text-[15px] font-extrabold tracking-tight">FinancePro</p><p className="mt-0.5 text-[11px] font-medium text-blue-300/70">Painel Financeiro</p></div><button onClick={() => setSidebarOpen(false)} className="rounded-md p-1.5 hover:bg-white/10 lg:hidden"><X className="h-4 w-4" /></button></div><nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-4">{NAV_ITEMS.map(({ icon: Icon, label, id }) => <button key={id} onClick={() => handleNavClick(id)} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-semibold transition-all ${activeNav === id ? "bg-blue-600 text-white shadow-lg shadow-blue-900/40" : "text-white/60 hover:bg-white/10 hover:text-white"}`}><Icon className="h-[18px] w-[18px] shrink-0" />{label}</button>)}</nav><div className="border-t border-white/10 px-4 py-4"><div className="flex items-center gap-3"><div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-500 text-sm font-bold">A</div><div><p className="text-[13px] font-semibold">Admin User</p><p className="text-[11px] text-blue-300/60">admin@financepro.com</p></div></div></div></aside>
+    <main className="flex min-w-0 flex-1 flex-col overflow-hidden"><header className="flex shrink-0 items-center justify-between border-b border-black/[0.07] bg-white px-6 py-3.5"><div className="flex items-center gap-3"><button onClick={() => setSidebarOpen(true)} className="rounded-lg p-1.5 hover:bg-gray-100 lg:hidden"><Menu className="h-5 w-5 text-gray-600" /></button><div><h1 className="text-[17px] font-extrabold text-[#14213d]">Dashboard Financeiro</h1><p className="hidden text-xs font-medium text-gray-400 sm:block">Visão consolidada por empresa</p></div></div><div className="flex items-center gap-2.5"><div className="hidden w-52 items-center gap-2 rounded-xl bg-gray-100 px-3.5 py-2 md:flex"><Search className="h-3.5 w-3.5 text-gray-400" /><input placeholder="Pesquisar..." className="w-full bg-transparent text-sm outline-none" /></div><button className="relative rounded-xl p-2.5 hover:bg-gray-100"><Bell className="h-[18px] w-[18px] text-gray-600" /><span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-red-500 ring-2 ring-white" /></button><button className="flex items-center gap-2 rounded-xl px-3 py-1.5 hover:bg-gray-100"><div className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">A</div><span className="hidden text-[13px] font-semibold text-gray-700 sm:block">Seu Nome</span><ChevronDown className="h-3.5 w-3.5 text-gray-400" /></button></div></header><FinancialDashboard onModal={setModal} /></main><Modal type={modal} onClose={() => setModal(null)} />
+  </div>;
 }
