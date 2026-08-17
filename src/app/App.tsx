@@ -1124,6 +1124,14 @@ function App() {
         return;
       }
       try {
+        // A restored browser tab can retain an old access token after another
+        // user has signed in. Refresh it before every initial financial read so
+        // the RLS rules use the current account and its permitted units.
+        const {
+          data: { session },
+          error: refreshError,
+        } = await supabase.auth.refreshSession();
+        if (refreshError || !session) throw refreshError || new Error("Sessão expirada.");
         const [entryRows, categoryRows, accountRows] = await Promise.all([
           readAuthenticatedRows<any>("entries", "date.desc"),
           readAuthenticatedRows<Category>("categories"),
