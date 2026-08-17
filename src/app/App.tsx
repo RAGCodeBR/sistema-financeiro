@@ -815,7 +815,7 @@ function EntryForm({
     </div>
   );
 }
-function UsersAdmin({ users, reload, createUser }: { users: User[]; reload: () => Promise<void>; createUser: (data: { name: string; email: string; password: string; units: Unit[] }) => Promise<void> }) {
+function UsersAdmin({ users, reload, createUser, resetPassword }: { users: User[]; reload: () => Promise<void>; createUser: (data: { name: string; email: string; password: string; units: Unit[] }) => Promise<void>; resetPassword: (user: User) => Promise<void> }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -844,7 +844,7 @@ function UsersAdmin({ users, reload, createUser }: { users: User[]; reload: () =
     await reload();
     setBusy(false);
   };
-  return <section className="grid gap-5 xl:grid-cols-[.9fr_1.1fr]"><form onSubmit={submit} className="rounded-2xl bg-white p-5 shadow-sm"><div className="mb-5"><h2 className="font-extrabold text-slate-900">Novo usuário</h2><p className="text-xs text-gray-400">Crie um acesso e determine os centros de custo visíveis.</p></div><div className="space-y-4"><label className="block text-xs font-bold text-gray-600">Nome<input required value={name} onChange={(event) => setName(event.target.value)} className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal" placeholder="Ex.: Bete Silva" /></label><label className="block text-xs font-bold text-gray-600">E-mail<input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal" placeholder="nome@empresa.com" /></label><label className="block text-xs font-bold text-gray-600">Senha inicial<input required minLength={6} type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal" placeholder="Mínimo de 6 caracteres" /></label><fieldset><legend className="text-xs font-bold text-gray-600">Centros de custo permitidos</legend><div className="mt-2 grid grid-cols-2 gap-2">{units.map((unit) => <label key={unit.name} className={`flex cursor-pointer items-center gap-2 rounded-xl border p-3 text-xs font-bold ${selectedUnits.includes(unit.name) ? "border-blue-300 bg-blue-50 text-blue-800" : "bg-white text-gray-600"}`}><input type="checkbox" checked={selectedUnits.includes(unit.name)} onChange={() => toggleUnit(unit.name)} />{unit.name}</label>)}</div></fieldset>{error && <p className="rounded-xl bg-red-50 p-3 text-xs font-bold text-red-600">{error}</p>}{message && <p className="rounded-xl bg-emerald-50 p-3 text-xs font-bold text-emerald-700">{message}</p>}<button disabled={busy} className="w-full rounded-xl bg-blue-700 py-3 text-sm font-bold text-white disabled:opacity-60">{busy ? "Criando..." : "Criar acesso"}</button></div></form><section className="rounded-2xl bg-white p-5 shadow-sm"><div className="mb-5"><h2 className="font-extrabold text-slate-900">Usuários ativos</h2><p className="text-xs text-gray-400">O Master enxerga tudo; operadores enxergam apenas os centros liberados.</p></div><div className="grid gap-3">{users.map((user) => <div key={user.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4"><div><p className="font-bold text-slate-900">{user.name}</p><p className="text-xs text-gray-400">{user.email || "E-mail protegido"} · {user.role === "master" ? "Master" : "Operador"}</p></div><div className="flex flex-wrap gap-1">{user.role === "master" ? <span className="rounded-full bg-blue-700 px-2 py-1 text-xs font-bold text-white">Todos os centros</span> : user.units.map((unit) => <span key={unit} className="rounded-full bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700">{unit}</span>)}</div></div>)}{!users.length && <p className="py-8 text-center text-sm text-gray-400">Carregando usuários…</p>}</div></section></section>;
+  return <section className="grid gap-5 xl:grid-cols-[.9fr_1.1fr]"><form onSubmit={submit} className="rounded-2xl bg-white p-5 shadow-sm"><div className="mb-5"><h2 className="font-extrabold text-slate-900">Novo usuário</h2><p className="text-xs text-gray-400">Crie um acesso e determine os centros de custo visíveis.</p></div><div className="space-y-4"><label className="block text-xs font-bold text-gray-600">Nome<input required value={name} onChange={(event) => setName(event.target.value)} className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal" placeholder="Ex.: Bete Silva" /></label><label className="block text-xs font-bold text-gray-600">E-mail<input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal" placeholder="nome@empresa.com" /></label><label className="block text-xs font-bold text-gray-600">Senha inicial<input required minLength={6} type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal" placeholder="Mínimo de 6 caracteres" /></label><fieldset><legend className="text-xs font-bold text-gray-600">Centros de custo permitidos</legend><div className="mt-2 grid grid-cols-2 gap-2">{units.map((unit) => <label key={unit.name} className={`flex cursor-pointer items-center gap-2 rounded-xl border p-3 text-xs font-bold ${selectedUnits.includes(unit.name) ? "border-blue-300 bg-blue-50 text-blue-800" : "bg-white text-gray-600"}`}><input type="checkbox" checked={selectedUnits.includes(unit.name)} onChange={() => toggleUnit(unit.name)} />{unit.name}</label>)}</div></fieldset>{error && <p className="rounded-xl bg-red-50 p-3 text-xs font-bold text-red-600">{error}</p>}{message && <p className="rounded-xl bg-emerald-50 p-3 text-xs font-bold text-emerald-700">{message}</p>}<button disabled={busy} className="w-full rounded-xl bg-blue-700 py-3 text-sm font-bold text-white disabled:opacity-60">{busy ? "Criando..." : "Criar acesso"}</button></div></form><section className="rounded-2xl bg-white p-5 shadow-sm"><div className="mb-5"><h2 className="font-extrabold text-slate-900">Usuários ativos</h2><p className="text-xs text-gray-400">O Master enxerga tudo; operadores enxergam apenas os centros liberados.</p></div><div className="grid gap-3">{users.map((user) => <div key={user.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4"><div><p className="font-bold text-slate-900">{user.name}</p><p className="text-xs text-gray-400">{user.email || "E-mail não informado"} · {user.role === "master" ? "Master" : "Operador"}</p></div><div className="flex flex-wrap items-center gap-2">{user.role === "master" ? <span className="rounded-full bg-blue-700 px-2 py-1 text-xs font-bold text-white">Todos os centros</span> : <>{user.units.map((unit) => <span key={unit} className="rounded-full bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700">{unit}</span>)}<button disabled={!user.email} onClick={() => void resetPassword(user)} className="rounded-lg border border-amber-200 px-2.5 py-1.5 text-xs font-bold text-amber-700 disabled:opacity-40">Redefinir senha</button></>}</div></div>)}{!users.length && <p className="py-8 text-center text-sm text-gray-400">Carregando usuários…</p>}</div></section></section>;
 }
 
 function Entries({
@@ -1051,12 +1051,12 @@ function App() {
     [accounts],
   );
   const loadUsers = async () => {
-    const { data } = await supabase.from("profiles").select("id, full_name, role, allowed_units").order("created_at");
+    const { data } = await supabase.from("profiles").select("id, full_name, email, role, allowed_units").order("created_at");
     if (!data) return;
     setUsers(data.map((profile) => ({
       id: profile.id,
       name: profile.full_name,
-      email: profile.id === currentUser?.id ? currentUser.email : "",
+      email: profile.email || (profile.id === currentUser?.id ? currentUser.email : ""),
       role: profile.role as User["role"],
       units: profile.allowed_units as Unit[],
     })));
@@ -1081,10 +1081,24 @@ function App() {
     if (restoreError) throw new Error("Usuário criado, mas sua sessão Master precisa ser renovada.");
     const { data: updatedProfile, error: profileError } = await supabase.from("profiles").update({
       full_name: name.trim(),
+      email: email.trim().toLowerCase(),
       role: "operador",
       allowed_units: allowedUnits,
     }).eq("id", data.user.id).select("id").maybeSingle();
     if (profileError || !updatedProfile) throw profileError || new Error("Perfil do usuário ainda não foi criado. Tente novamente em alguns segundos.");
+  };
+  const resetManagedUserPassword = async (user: User) => {
+    if (!user.email) throw new Error("Este usuário não possui e-mail registrado.");
+    const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
+      redirectTo: `${window.location.origin}${window.location.pathname}`,
+    });
+    if (error) throw error;
+    window.alert(`Enviamos um link de redefinição para ${user.email}.`);
+  };
+  const logout = async () => {
+    await supabase.auth.signOut();
+    sessionStorage.removeItem("fincore.supabase.hydrated");
+    setCurrentUser(null);
   };
   if (!currentUser) return <Login onLogin={setCurrentUser} />;
   const allowedUnits =
@@ -1284,8 +1298,10 @@ function App() {
               </button>
             ))}
         </nav>
-        <div className="border-t border-white/10 p-4 text-xs text-blue-200">
-          Dados sincronizados com o banco
+        <div className="border-t border-white/10 p-4">
+          <p className="truncate text-sm font-bold text-white">{currentUser.name}</p>
+          <p className="mb-3 truncate text-[11px] text-blue-200/70">{currentUser.email}</p>
+          <button onClick={logout} className="w-full rounded-lg border border-white/15 px-2.5 py-2 text-xs font-bold text-blue-100 hover:bg-white/10">Sair da conta</button>
         </div>
       </aside>
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -1312,19 +1328,6 @@ function App() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="hidden text-right text-xs text-gray-500 sm:block">
-              {currentUser.name}
-            </span>
-              <button
-                onClick={async () => {
-                  await supabase.auth.signOut();
-                  sessionStorage.removeItem("fincore.supabase.hydrated");
-                  setCurrentUser(null);
-                }}
-              className="rounded-lg border px-2.5 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-50"
-            >
-              Sair
-            </button>
             <div className="relative">
               <Bell className="m-2 h-5 w-5 text-gray-400" />
               {pending.length > 0 && (
@@ -1621,7 +1624,7 @@ function App() {
               </div>
             </section>
           ) : screen === "usuarios" ? (
-            <UsersAdmin users={users} reload={loadUsers} createUser={createManagedUser} />
+            <UsersAdmin users={users} reload={loadUsers} createUser={createManagedUser} resetPassword={resetManagedUserPassword} />
           ) : screen === "categorias" ? (
             <section className="rounded-2xl bg-white p-5 shadow-sm">
               <div className="mb-5 flex flex-wrap justify-between gap-3">

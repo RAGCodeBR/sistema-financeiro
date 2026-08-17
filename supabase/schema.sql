@@ -4,6 +4,7 @@
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   full_name text not null default 'Usuário Fincore',
+  email text,
   role text not null default 'operador' check (role in ('master', 'operador')),
   allowed_units text[] not null default '{}',
   created_at timestamptz not null default now()
