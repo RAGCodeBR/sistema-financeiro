@@ -1285,7 +1285,7 @@ function App() {
             ))}
         </nav>
         <div className="border-t border-white/10 p-4 text-xs text-blue-200">
-          Dados salvos neste navegador
+          Dados sincronizados com o banco
         </div>
       </aside>
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -1302,6 +1302,8 @@ function App() {
                     ? "Contas"
                     : screen === "categorias"
                       ? "Plano de contas"
+                      : screen === "usuarios"
+                        ? "Usuários e acessos"
                       : "Lançamentos"}
               </h1>
               <p className="text-xs text-gray-400">
