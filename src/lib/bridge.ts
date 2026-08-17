@@ -1,6 +1,5 @@
 import { supabase } from "./supabase";
 
-const hydratedKey = "fincore.supabase.hydrated";
 const nativeSetItem = Storage.prototype.setItem;
 const syncedKeys = new Set(["financepro.entries", "financepro.categories"]);
 
@@ -86,28 +85,3 @@ Storage.prototype.setItem = function setItem(key: string, value: string) {
   nativeSetItem.call(this, key, value);
   if (syncedKeys.has(key)) void reconcile(key, previous, value);
 };
-
-async function hydrate() {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    if (localStorage.getItem("fincore.user")) {
-      localStorage.removeItem("fincore.user");
-      location.reload();
-    }
-    return;
-  }
-  if (sessionStorage.getItem(hydratedKey)) return;
-
-  const [entries, categories, accounts] = await Promise.all([
-    supabase.from("entries").select("*").order("date", { ascending: false }),
-    supabase.from("categories").select("*"),
-    supabase.from("accounts").select("*"),
-  ]);
-  if (entries.data) nativeSetItem.call(localStorage, "financepro.entries", JSON.stringify(entries.data.map((row: any) => ({ ...row, seriesId: row.series_id, amount: Number(row.amount) }))));
-  if (categories.data) nativeSetItem.call(localStorage, "financepro.categories", JSON.stringify(categories.data));
-  if (accounts.data) nativeSetItem.call(localStorage, "financepro.accounts", JSON.stringify(accounts.data.map((row: any) => ({ id: row.id, name: row.name }))));
-  sessionStorage.setItem(hydratedKey, "1");
-  location.reload();
-}
-
-void hydrate();

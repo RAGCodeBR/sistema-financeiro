@@ -288,9 +288,7 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
       units: profile.allowed_units as Unit[],
     };
     localStorage.setItem("fincore.user", JSON.stringify(user));
-    sessionStorage.removeItem("fincore.supabase.hydrated");
     onLogin(user);
-    window.location.reload();
   };
   return (
     <main className="min-h-screen bg-[#e8edf5] p-3 text-[#14213d] sm:p-5">
@@ -1046,6 +1044,8 @@ function App() {
     ),
     [menu, setMenu] = useState(false),
     [users, setUsers] = useState<User[]>([]),
+    [dataReady, setDataReady] = useState(false),
+    [dataError, setDataError] = useState(""),
     [month, setMonth] = useState(
       () => new Date(new Date().getFullYear(), new Date().getMonth(), 1),
     );
@@ -1067,6 +1067,45 @@ function App() {
     () => localStorage.setItem("financepro.accounts", JSON.stringify(accounts)),
     [accounts],
   );
+  useEffect(() => {
+    let active = true;
+    if (!currentUser) {
+      setDataReady(false);
+      return () => {
+        active = false;
+      };
+    }
+    setDataReady(false);
+    setDataError("");
+    void (async () => {
+      const [entryResult, categoryResult, accountResult] = await Promise.all([
+        supabase.from("entries").select("*").order("date", { ascending: false }),
+        supabase.from("categories").select("*"),
+        supabase.from("accounts").select("*"),
+      ]);
+      if (!active) return;
+      const error = entryResult.error || categoryResult.error || accountResult.error;
+      if (error) {
+        setDataError("Não foi possível carregar os dados do banco. Tente novamente.");
+        setDataReady(true);
+        return;
+      }
+      setEntries((entryResult.data || []).map((row: any) => ({
+        ...row,
+        seriesId: row.series_id || undefined,
+        amount: Number(row.amount),
+      })));
+      setCategories(categoryResult.data || []);
+      setAccounts((accountResult.data || []).map((row: any) => ({
+        id: row.id,
+        name: row.name,
+      })));
+      setDataReady(true);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [currentUser?.id]);
   const loadUsers = async () => {
     const { data } = await supabase.from("profiles").select("id, full_name, email, role, allowed_units").order("created_at");
     if (!data) return;
@@ -1115,10 +1154,19 @@ function App() {
   };
   const logout = async () => {
     await supabase.auth.signOut();
-    sessionStorage.removeItem("fincore.supabase.hydrated");
     setCurrentUser(null);
   };
   if (!currentUser) return <Login onLogin={setCurrentUser} />;
+  if (!dataReady || dataError)
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#f2f4f8] p-6 text-center">
+        <div className="rounded-2xl bg-white px-8 py-7 shadow-sm">
+          <p className="text-lg font-extrabold text-[#14213d]">Carregando dados financeiros</p>
+          <p className="mt-2 text-sm text-gray-500">Sincronizando os lançamentos e categorias do banco...</p>
+          {dataError && <p className="mt-4 text-sm font-bold text-red-600">{dataError}</p>}
+        </div>
+      </main>
+    );
   const allowedUnits =
     currentUser.role === "master"
       ? units
