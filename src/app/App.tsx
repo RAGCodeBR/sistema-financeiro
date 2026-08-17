@@ -5,6 +5,7 @@ import {
   CalendarClock,
   ChevronLeft,
   ChevronRight,
+  CreditCard,
   LayoutDashboard,
   Menu,
   Plus,
