@@ -43,6 +43,14 @@ export async function deleteRemoteEntries(ids: string[]) {
   if (error) throw error;
 }
 
+export async function deleteRemoteEntrySeries(seriesId: string) {
+  if (!uuid(seriesId)) return;
+  // A recurring series can contain hundreds of records. Deleting by series_id
+  // avoids an oversized URL made from one id per installment.
+  const { error } = await supabase.from("entries").delete().eq("series_id", seriesId);
+  if (error) throw error;
+}
+
 export async function deleteRemoteCategory(categoryId: string) {
   if (!uuid(categoryId)) return;
   const { error } = await supabase.from("categories").delete().eq("id", categoryId);

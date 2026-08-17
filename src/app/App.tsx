@@ -3,6 +3,7 @@ import { readAuthenticatedRows, supabase } from "../lib/supabase";
 import {
   deleteRemoteCategory,
   deleteRemoteEntries,
+  deleteRemoteEntrySeries,
   saveRemoteCategory,
   saveRemoteEntries,
 } from "../lib/bridge";
@@ -1193,8 +1194,8 @@ function App() {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#f2f4f8] p-6 text-center">
         <div className="rounded-2xl bg-white px-8 py-7 shadow-sm">
-          <p className="text-lg font-extrabold text-[#14213d]">Verificando seu acesso</p>
-          <p className="mt-2 text-sm text-gray-500">Conectando à sua conta Fincore...</p>
+          <img src="/sistema-financeiro/fincore-logo-transparent.png" alt="Fincore" className="mx-auto w-36" />
+          <div className="mx-auto mt-6 h-7 w-7 animate-spin rounded-full border-[3px] border-blue-100 border-t-blue-700" aria-label="Carregando" />
         </div>
       </main>
     );
@@ -1203,9 +1204,12 @@ function App() {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#f2f4f8] p-6 text-center">
         <div className="rounded-2xl bg-white px-8 py-7 shadow-sm">
-          <p className="text-lg font-extrabold text-[#14213d]">Carregando dados financeiros</p>
-          <p className="mt-2 text-sm text-gray-500">Sincronizando os lançamentos e categorias do banco...</p>
-          {dataError && <p className="mt-4 text-sm font-bold text-red-600">{dataError}</p>}
+          <img src="/sistema-financeiro/fincore-logo-transparent.png" alt="Fincore" className="mx-auto w-36" />
+          {dataError ? (
+            <p className="mt-5 text-sm font-bold text-red-600">Não foi possível carregar. Atualize a página.</p>
+          ) : (
+            <div className="mx-auto mt-6 h-7 w-7 animate-spin rounded-full border-[3px] border-blue-100 border-t-blue-700" aria-label="Carregando" />
+          )}
         </div>
       </main>
     );
@@ -1316,7 +1320,7 @@ function App() {
           data.recurrence === "mensal" || data.installments > 1
             ? id()
             : undefined,
-        count = data.recurrence === "mensal" ? 1200 : data.installments;
+        count = data.recurrence === "mensal" ? 36 : data.installments;
       const created = Array.from({ length: count }, (_, i) => {
           const due = new Date(base);
           due.setMonth(base.getMonth() + i);
@@ -1353,7 +1357,8 @@ function App() {
           ? v.seriesId === x.seriesId
           : v.id === x.id,
       );
-      await deleteRemoteEntries(removed.map((entry) => entry.id));
+      if (scope === "series" && x.seriesId) await deleteRemoteEntrySeries(x.seriesId);
+      else await deleteRemoteEntries(removed.map((entry) => entry.id));
       setEntries((old) => old.filter((v) => !removed.some((entry) => entry.id === v.id)));
     },
     open = (kind: Kind) => {
