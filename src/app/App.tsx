@@ -1,12 +1,10 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import {
-  ArrowLeftRight,
   Bell,
   CalendarClock,
   ChevronLeft,
   ChevronRight,
-  CreditCard,
   LayoutDashboard,
   Menu,
   Plus,
@@ -1007,6 +1005,9 @@ function App() {
       units.map((unit) => ({ id: unit.name, name: unit.name })),
     ),
     [filter, setFilter] = useState<Unit | "Todos">("Todos"),
+    [entryFilter, setEntryFilter] = useState<"todos" | "pagar" | "receber">(
+      "todos",
+    ),
     [menu, setMenu] = useState(false),
     [users, setUsers] = useState<User[]>([]),
     [month, setMonth] = useState(
@@ -1091,11 +1092,13 @@ function App() {
         .filter((x) => x.account === name && x.status === "realizado")
         .reduce((s, x) => s + (x.kind === "receita" ? x.amount : -x.amount), 0),
     addAccount = () => {
+      if (currentUser.role !== "master") return;
       const name = window.prompt("Nome da nova conta:");
       if (name?.trim())
         setAccounts((old) => [...old, { id: id(), name: name.trim() }]);
     },
     adjust = (account: Account) => {
+      if (currentUser.role !== "master") return;
       const wanted = window.prompt(
         `Novo saldo de :`,
         String(balance(account.name)),
@@ -1226,14 +1229,16 @@ function App() {
       setModal(kind);
       setScreen("lancamentos");
     },
-    list =
-      screen === "pagar"
-        ? current.filter((x) => x.kind === "despesa" && x.status === "previsto")
-        : screen === "receber"
-          ? current.filter(
-              (x) => x.kind === "receita" && x.status === "previsto",
-            )
-          : current,
+    list = current.filter(
+      (x) =>
+        entryFilter === "todos" ||
+        (entryFilter === "pagar" &&
+          x.kind === "despesa" &&
+          x.status === "previsto") ||
+        (entryFilter === "receber" &&
+          x.kind === "receita" &&
+          x.status === "previsto"),
+    ),
     byUnit = allowedUnits.map((u) => ({
       ...u,
       categories: categories.filter((c) => c.unit === u.name),
@@ -1241,9 +1246,6 @@ function App() {
     nav = [
       { id: "dashboard", text: "Dashboard", Icon: LayoutDashboard },
       { id: "lancamentos", text: "Lançamentos", Icon: ReceiptText },
-      { id: "pagar", text: "Contas a Pagar", Icon: CreditCard },
-      { id: "receber", text: "Contas a Receber", Icon: Wallet },
-      { id: "transferencias", text: "Transferências", Icon: ArrowLeftRight },
       { id: "contas", text: "Contas", Icon: Wallet },
       { id: "categorias", text: "Plano de contas", Icon: Tag },
       { id: "usuarios", text: "Usuários", Icon: Menu },
@@ -1270,6 +1272,7 @@ function App() {
                 key={x.id}
                 onClick={() => {
                   setScreen(x.id);
+                  if (x.id === "lancamentos") setEntryFilter("todos");
                   setMenu(false);
                 }}
                 className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold ${screen === x.id ? "bg-blue-600" : "text-white/60"}`}
@@ -1433,12 +1436,14 @@ function App() {
                             {fmt(balance(account.name))}
                           </p>
                         </div>
-                        <button
-                          onClick={() => adjust(account)}
-                          className="mt-3 rounded-lg border px-2.5 py-1.5 text-xs font-bold text-gray-600"
-                        >
-                          Ajustar saldo
-                        </button>
+                        {currentUser.role === "master" && (
+                          <button
+                            onClick={() => adjust(account)}
+                            className="mt-3 rounded-lg border px-2.5 py-1.5 text-xs font-bold text-gray-600"
+                          >
+                            Ajustar saldo
+                          </button>
+                        )}
                       </div>
                     ))}
                 </div>
@@ -1598,12 +1603,14 @@ function App() {
                           {fmt(balance(account.name))}
                         </p>
                       </div>
-                      <button
-                        onClick={() => adjust(account)}
-                        className="mt-4 rounded-xl border px-3 py-2 text-xs font-bold text-gray-700"
-                      >
-                        Ajustar saldo
-                      </button>
+                      {currentUser.role === "master" && (
+                        <button
+                          onClick={() => adjust(account)}
+                          className="mt-4 rounded-xl border px-3 py-2 text-xs font-bold text-gray-700"
+                        >
+                          Ajustar saldo
+                        </button>
+                      )}
                     </article>
                   ))}
               </div>
@@ -1704,27 +1711,51 @@ function App() {
               <div className="mb-5 flex flex-wrap justify-between gap-3">
                 <div>
                   <h2 className="font-extrabold text-[#14213d]">
-                    {screen === "pagar"
-                      ? "Despesas previstas"
-                      : screen === "receber"
-                        ? "Receitas previstas"
+                    {entryFilter === "pagar"
+                      ? "Contas a pagar"
+                      : entryFilter === "receber"
+                        ? "Contas a receber"
                         : "Todos os lançamentos"}
                   </h2>
                   <p className="text-xs text-gray-400">
-                    Dados do mês selecionado.
+                    Consulte, filtre e dê baixa nos lançamentos do mês.
                   </p>
                 </div>
-                <button
-                  onClick={() =>
-                    open(screen === "receber" ? "receita" : "despesa")
-                  }
-                  className="flex items-center gap-1 rounded-xl bg-blue-700 px-3 py-2 text-xs font-bold text-white"
-                >
-                  <Plus className="h-4 w-4" />
-                  Novo
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => open("despesa")}
+                    className="flex items-center gap-1 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-100"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Nova despesa
+                  </button>
+                  <button
+                    onClick={() => open("receita")}
+                    className="flex items-center gap-1 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Nova receita
+                  </button>
+                </div>
               </div>
-              <div className="mb-5">
+              <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    ["todos", "Todos"],
+                    ["pagar", "Contas a pagar"],
+                    ["receber", "Contas a receber"],
+                  ].map(([value, label]) => (
+                    <button
+                      key={value}
+                      onClick={() =>
+                        setEntryFilter(value as "todos" | "pagar" | "receber")
+                      }
+                      className={`rounded-full px-3 py-2 text-xs font-bold ${entryFilter === value ? "bg-[#14213d] text-white" : "border bg-white text-gray-600 hover:bg-gray-50"}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
                 <Month value={month} move={move} />
               </div>
               <Entries
