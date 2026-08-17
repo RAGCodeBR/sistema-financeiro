@@ -52,7 +52,6 @@ type User = {
   id: string;
   name: string;
   email: string;
-  password: string;
   role: "master" | "operador";
   units: Unit[];
 };
@@ -145,40 +144,6 @@ const baseAccounts: Account[] = [
     "🚙",
     "💳",
   ];
-const testUsers: User[] = [
-  {
-    id: "master",
-    name: "Administrador Fincore",
-    email: "master@financeiro.com",
-    password: "senha123@",
-    role: "master",
-    units: units.map((x) => x.name),
-  },
-  {
-    id: "consultoria",
-    name: "Operador Consultoria",
-    email: "consultoria@fincore.local",
-    password: "123456",
-    role: "operador",
-    units: ["Consultoria"],
-  },
-  {
-    id: "marketing",
-    name: "Operador Marketing",
-    email: "marketing@fincore.local",
-    password: "123456",
-    role: "operador",
-    units: ["Marketing"],
-  },
-  {
-    id: "sitio",
-    name: "Operador Sítio",
-    email: "sitio@fincore.local",
-    password: "123456",
-    role: "operador",
-    units: ["Sítio"],
-  },
-];
 const id = () => crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 const fmt = (n: number) =>
   n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -285,16 +250,42 @@ function ScopeDialog({
   );
 }
 function Login({ onLogin }: { onLogin: (user: User) => void }) {
-  const [email, setEmail] = useState("master@fincore.local"),
-    [password, setPassword] = useState("fincore123"),
-    [error, setError] = useState("");
-  const submit = (e: FormEvent) => {
+  const [email, setEmail] = useState(""),
+    [password, setPassword] = useState(""),
+    [error, setError] = useState(""),
+    [busy, setBusy] = useState(false);
+  const submit = async (e: FormEvent) => {
     e.preventDefault();
-    const user = testUsers.find(
-      (x) => x.email === email && x.password === password,
-    );
-    if (user) onLogin(user);
-    else setError("E-mail ou senha inválidos.");
+    setBusy(true);
+    setError("");
+    const { data, error: authError } = await supabase.auth.signInWithPassword({ email, password });
+    if (authError || !data.user) {
+      setError("E-mail ou senha inválidos.");
+      setBusy(false);
+      return;
+    }
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("full_name, role, allowed_units")
+      .eq("id", data.user.id)
+      .single();
+    if (profileError || !profile) {
+      await supabase.auth.signOut();
+      setError("Seu perfil de acesso não está configurado. Fale com o administrador.");
+      setBusy(false);
+      return;
+    }
+    const user = {
+      id: data.user.id,
+      name: profile.full_name,
+      email: data.user.email || email,
+      role: profile.role as User["role"],
+      units: profile.allowed_units as Unit[],
+    };
+    localStorage.setItem("fincore.user", JSON.stringify(user));
+    sessionStorage.removeItem("fincore.supabase.hydrated");
+    onLogin(user);
+    window.location.reload();
   };
   return (
     <main className="min-h-screen bg-[#eef2f8] p-4 text-[#14213d] sm:p-7">
@@ -369,17 +360,12 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
             {error && (
               <p className="mt-3 text-sm font-bold text-red-600">{error}</p>
             )}
-            <button className="mt-6 w-full rounded-xl bg-blue-700 py-3.5 text-sm font-bold text-white shadow-lg shadow-blue-700/20">
-              Entrar no Fincore
+            <button disabled={busy} className="mt-6 w-full rounded-xl bg-blue-700 py-3.5 text-sm font-bold text-white shadow-lg shadow-blue-700/20 disabled:cursor-wait disabled:opacity-70">
+              {busy ? "Entrando..." : "Entrar no Fincore"}
             </button>
             <div className="mt-6 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-xs leading-relaxed text-blue-900">
-              <b className="block">Acesso de demonstração</b>
-              <span>Master: master@fincore.local · fincore123</span>
-              <br />
-              <span>
-                Operadores: consultoria, marketing ou sitio @fincore.local ·
-                123456
-              </span>
+              <b className="block">Acesso protegido</b>
+              <span>Use o e-mail e a senha fornecidos pelo administrador Master.</span>
             </div>
           </form>
         </section>
@@ -829,6 +815,38 @@ function EntryForm({
     </div>
   );
 }
+function UsersAdmin({ users, reload, createUser }: { users: User[]; reload: () => Promise<void>; createUser: (data: { name: string; email: string; password: string; units: Unit[] }) => Promise<void> }) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [selectedUnits, setSelectedUnits] = useState<Unit[]>([]);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const toggleUnit = (unit: Unit) => setSelectedUnits((current) => current.includes(unit) ? current.filter((item) => item !== unit) : [...current, unit]);
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      await createUser({ name, email, password, units: selectedUnits });
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : "Não foi possível criar o usuário.");
+      setBusy(false);
+      return;
+    }
+    setName("");
+    setEmail("");
+    setPassword("");
+    setSelectedUnits([]);
+    setMessage("Usuário criado. Ele já pode acessar somente os centros definidos.");
+    await reload();
+    setBusy(false);
+  };
+  return <section className="grid gap-5 xl:grid-cols-[.9fr_1.1fr]"><form onSubmit={submit} className="rounded-2xl bg-white p-5 shadow-sm"><div className="mb-5"><h2 className="font-extrabold text-slate-900">Novo usuário</h2><p className="text-xs text-gray-400">Crie um acesso e determine os centros de custo visíveis.</p></div><div className="space-y-4"><label className="block text-xs font-bold text-gray-600">Nome<input required value={name} onChange={(event) => setName(event.target.value)} className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal" placeholder="Ex.: Bete Silva" /></label><label className="block text-xs font-bold text-gray-600">E-mail<input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal" placeholder="nome@empresa.com" /></label><label className="block text-xs font-bold text-gray-600">Senha inicial<input required minLength={6} type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal" placeholder="Mínimo de 6 caracteres" /></label><fieldset><legend className="text-xs font-bold text-gray-600">Centros de custo permitidos</legend><div className="mt-2 grid grid-cols-2 gap-2">{units.map((unit) => <label key={unit.name} className={`flex cursor-pointer items-center gap-2 rounded-xl border p-3 text-xs font-bold ${selectedUnits.includes(unit.name) ? "border-blue-300 bg-blue-50 text-blue-800" : "bg-white text-gray-600"}`}><input type="checkbox" checked={selectedUnits.includes(unit.name)} onChange={() => toggleUnit(unit.name)} />{unit.name}</label>)}</div></fieldset>{error && <p className="rounded-xl bg-red-50 p-3 text-xs font-bold text-red-600">{error}</p>}{message && <p className="rounded-xl bg-emerald-50 p-3 text-xs font-bold text-emerald-700">{message}</p>}<button disabled={busy} className="w-full rounded-xl bg-blue-700 py-3 text-sm font-bold text-white disabled:opacity-60">{busy ? "Criando..." : "Criar acesso"}</button></div></form><section className="rounded-2xl bg-white p-5 shadow-sm"><div className="mb-5"><h2 className="font-extrabold text-slate-900">Usuários ativos</h2><p className="text-xs text-gray-400">O Master enxerga tudo; operadores enxergam apenas os centros liberados.</p></div><div className="grid gap-3">{users.map((user) => <div key={user.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4"><div><p className="font-bold text-slate-900">{user.name}</p><p className="text-xs text-gray-400">{user.email || "E-mail protegido"} · {user.role === "master" ? "Master" : "Operador"}</p></div><div className="flex flex-wrap gap-1">{user.role === "master" ? <span className="rounded-full bg-blue-700 px-2 py-1 text-xs font-bold text-white">Todos os centros</span> : user.units.map((unit) => <span key={unit} className="rounded-full bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700">{unit}</span>)}</div></div>)}{!users.length && <p className="py-8 text-center text-sm text-gray-400">Carregando usuários…</p>}</div></section></section>;
+}
+
 function Entries({
   entries,
   categories,
@@ -1010,6 +1028,7 @@ function App() {
     ),
     [filter, setFilter] = useState<Unit | "Todos">("Todos"),
     [menu, setMenu] = useState(false),
+    [users, setUsers] = useState<User[]>([]),
     [month, setMonth] = useState(
       () => new Date(new Date().getFullYear(), new Date().getMonth(), 1),
     );
@@ -1031,6 +1050,42 @@ function App() {
     () => localStorage.setItem("financepro.accounts", JSON.stringify(accounts)),
     [accounts],
   );
+  const loadUsers = async () => {
+    const { data } = await supabase.from("profiles").select("id, full_name, role, allowed_units").order("created_at");
+    if (!data) return;
+    setUsers(data.map((profile) => ({
+      id: profile.id,
+      name: profile.full_name,
+      email: profile.id === currentUser?.id ? currentUser.email : "",
+      role: profile.role as User["role"],
+      units: profile.allowed_units as Unit[],
+    })));
+  };
+  useEffect(() => {
+    if (currentUser?.role === "master") void loadUsers();
+  }, [currentUser?.id, currentUser?.role]);
+  const createManagedUser = async ({ name, email, password, units: allowedUnits }: { name: string; email: string; password: string; units: Unit[] }) => {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const masterSession = sessionData.session;
+    if (!masterSession) throw new Error("Sua sessão expirou. Entre novamente para criar usuários.");
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: { data: { full_name: name.trim() } },
+    });
+    if (error || !data.user) throw error || new Error("Não foi possível criar o usuário.");
+    const { error: restoreError } = await supabase.auth.setSession({
+      access_token: masterSession.access_token,
+      refresh_token: masterSession.refresh_token,
+    });
+    if (restoreError) throw new Error("Usuário criado, mas sua sessão Master precisa ser renovada.");
+    const { data: updatedProfile, error: profileError } = await supabase.from("profiles").update({
+      full_name: name.trim(),
+      role: "operador",
+      allowed_units: allowedUnits,
+    }).eq("id", data.user.id).select("id").maybeSingle();
+    if (profileError || !updatedProfile) throw profileError || new Error("Perfil do usuário ainda não foi criado. Tente novamente em alguns segundos.");
+  };
   if (!currentUser) return <Login onLogin={setCurrentUser} />;
   const allowedUnits =
     currentUser.role === "master"
@@ -1258,8 +1313,12 @@ function App() {
             <span className="hidden text-right text-xs text-gray-500 sm:block">
               {currentUser.name}
             </span>
-            <button
-              onClick={() => setCurrentUser(null)}
+              <button
+                onClick={async () => {
+                  await supabase.auth.signOut();
+                  sessionStorage.removeItem("fincore.supabase.hydrated");
+                  setCurrentUser(null);
+                }}
               className="rounded-lg border px-2.5 py-1.5 text-xs font-bold text-gray-600 hover:bg-gray-50"
             >
               Sair
@@ -1560,41 +1619,7 @@ function App() {
               </div>
             </section>
           ) : screen === "usuarios" ? (
-            <section className="rounded-2xl bg-white p-5 shadow-sm">
-              <div className="mb-5">
-                <h2 className="font-extrabold text-slate-900">
-                  Usuarios e acessos
-                </h2>
-                <p className="text-xs text-gray-400">
-                  Perfis de teste e seus centros de custo permitidos.
-                </p>
-              </div>
-              <div className="grid gap-3">
-                {testUsers.map((user) => (
-                  <div
-                    key={user.id}
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4"
-                  >
-                    <div>
-                      <p className="font-bold text-slate-900">{user.name}</p>
-                      <p className="text-xs text-gray-400">
-                        {user.email} · {user.role}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {user.units.map((unit) => (
-                        <span
-                          key={unit}
-                          className="rounded-full bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700"
-                        >
-                          {unit}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
+            <UsersAdmin users={users} reload={loadUsers} createUser={createManagedUser} />
           ) : screen === "categorias" ? (
             <section className="rounded-2xl bg-white p-5 shadow-sm">
               <div className="mb-5 flex flex-wrap justify-between gap-3">

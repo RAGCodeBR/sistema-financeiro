@@ -95,13 +95,4 @@ async function hydrate() {
   location.reload();
 }
 
-document.addEventListener("submit", (event) => {
-  const form = event.target as HTMLFormElement;
-  const password = form.querySelector('input[type="password"]') as HTMLInputElement | null;
-  const email = form.querySelector('input:not([type])') as HTMLInputElement | null;
-  if (!password || !email) return;
-  sessionStorage.removeItem(hydratedKey);
-  void supabase.auth.signInWithPassword({ email: email.value, password: password.value }).then(hydrate);
-}, true);
-
 void hydrate();
