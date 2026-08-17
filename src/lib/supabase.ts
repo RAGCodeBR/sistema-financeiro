@@ -15,15 +15,31 @@ export const supabase = createClient(supabaseUrl, supabasePublishableKey);
 export async function readAuthenticatedRows<T>(table: string, order?: string): Promise<T[]> {
   const { data: { session }, error: sessionError } = await supabase.auth.getSession();
   if (sessionError || !session) throw new Error("Sessão não encontrada.");
-  const params = new URLSearchParams({ select: "*" });
-  if (order) params.set("order", order);
-  const response = await fetch(`${supabaseUrl}/rest/v1/${table}?${params.toString()}`, {
-    headers: {
-      apikey: supabasePublishableKey,
-      Authorization: `Bearer ${session.access_token}`,
-    },
-  });
-  const payload = await response.json();
-  if (!response.ok) throw new Error(payload?.message || "Não foi possível ler os dados financeiros.");
-  return payload as T[];
+  const rows: T[] = [];
+  const pageSize = 1000;
+  let offset = 0;
+
+  // PostgREST returns at most 1,000 rows by default. Recurring records can
+  // exceed that quickly; fetch every page so old/current months never vanish
+  // merely because future installments exist in the same series.
+  while (true) {
+    const params = new URLSearchParams({
+      select: "*",
+      limit: String(pageSize),
+      offset: String(offset),
+    });
+    if (order) params.set("order", order);
+    const response = await fetch(`${supabaseUrl}/rest/v1/${table}?${params.toString()}`, {
+      headers: {
+        apikey: supabasePublishableKey,
+        Authorization: `Bearer ${session.access_token}`,
+      },
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload?.message || "Não foi possível ler os dados financeiros.");
+    const page = payload as T[];
+    rows.push(...page);
+    if (page.length < pageSize) return rows;
+    offset += pageSize;
+  }
 }
