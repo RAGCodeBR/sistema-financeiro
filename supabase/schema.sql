@@ -100,6 +100,18 @@ create policy "categories by unit" on public.categories for all using (public.ca
 drop policy if exists "entries by unit" on public.entries;
 create policy "entries by unit" on public.entries for all using (public.can_access_unit(unit)) with check (public.can_access_unit(unit));
 
+create extension if not exists pgcrypto;
+create or replace function public.master_reset_user_password(target_user uuid, new_password text)
+returns void language plpgsql security definer set search_path = public, extensions as $$
+begin
+  if not public.is_master() then raise exception 'Apenas o Master pode redefinir senhas'; end if;
+  if length(new_password) < 6 then raise exception 'A senha precisa ter no mínimo 6 caracteres'; end if;
+  update auth.users set encrypted_password = extensions.crypt(new_password, extensions.gen_salt('bf')), updated_at = now() where id = target_user;
+  if not found then raise exception 'Usuário não encontrado'; end if;
+end;
+$$;
+grant execute on function public.master_reset_user_password(uuid, text) to authenticated;
+
 insert into public.accounts (name, unit) values
   ('Marketing', 'Marketing'), ('Sítio', 'Sítio'), ('Consultoria', 'Consultoria'), ('Pessoa Física', 'Pessoa Física')
 on conflict (name, unit) do nothing;
