@@ -1198,9 +1198,15 @@ function App() {
     });
     if (error) throw error;
   };
-  const logout = async () => {
-    await supabase.auth.signOut();
+  const logout = () => {
+    // The interface must release the current operation immediately. The remote
+    // sign-out can finish in the background and must not leave the user stuck
+    // on a protected screen when the network is slow.
     setCurrentUser(null);
+    setDataReady(false);
+    void supabase.auth.signOut().catch((error) =>
+      console.error("Fincore: falha ao encerrar sessão", error),
+    );
   };
   if (!authReady)
     return (
