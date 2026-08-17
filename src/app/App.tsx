@@ -288,49 +288,22 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
     window.location.reload();
   };
   return (
-    <main className="min-h-screen bg-[#eef2f8] p-4 text-[#14213d] sm:p-7">
-      <div className="mx-auto grid min-h-[calc(100vh-32px)] max-w-6xl overflow-hidden rounded-[2rem] bg-white shadow-2xl lg:grid-cols-[1.1fr_.9fr]">
-        <section className="relative flex flex-col justify-between overflow-hidden bg-[#14213d] p-8 text-white sm:p-12">
-          <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-blue-600/30 blur-2xl" />
-          <div className="relative flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-lg">
-              ◈
-            </div>
-            <div>
-              <p className="text-2xl font-extrabold tracking-tight">fincore</p>
-              <p className="text-xs text-blue-200">
-                Gestão financeira inteligente
-              </p>
-            </div>
+    <main className="min-h-screen bg-[#e8edf5] p-3 text-[#14213d] sm:p-5">
+      <div className="mx-auto grid min-h-[calc(100vh-24px)] max-w-[1500px] overflow-hidden rounded-[2rem] bg-white shadow-2xl lg:grid-cols-[1.15fr_.85fr]">
+        <section className="relative flex flex-col justify-between overflow-hidden bg-[#14213d] p-9 text-white sm:p-14">
+          <div className="absolute -right-24 -top-24 h-80 w-80 rounded-full bg-blue-500/25 blur-3xl" />
+          <div className="absolute -bottom-24 -left-24 h-80 w-80 rounded-full bg-indigo-500/20 blur-3xl" />
+          <p className="relative text-xl font-extrabold tracking-tight">fincore</p>
+          <div className="relative max-w-xl py-12">
+            <p className="mb-5 text-xs font-extrabold tracking-[.2em] text-blue-200">GESTÃO FINANCEIRA</p>
+            <h1 className="text-5xl font-extrabold leading-[1.04] sm:text-6xl">Clareza para decidir. Controle para crescer.</h1>
+            <p className="mt-7 max-w-lg text-lg leading-relaxed text-blue-100">Organize receitas, despesas, contas e operações com uma visão financeira construída para o seu dia a dia.</p>
           </div>
-          <div className="relative py-10">
-            <p className="mb-4 inline-flex rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-blue-100">
-              MULTICONTAS E OPERAÇÕES
-            </p>
-            <h1 className="max-w-lg text-4xl font-extrabold leading-[1.08] sm:text-5xl">
-              Uma visão financeira clara para cada operação.
-            </h1>
-            <p className="mt-5 max-w-md text-base leading-relaxed text-blue-100">
-              Gestão de múltiplas contas e centros de custo, com plano de contas
-              individual e personalizável para cada negócio.
-            </p>
-            <div className="mt-8 grid max-w-md grid-cols-2 gap-3 text-sm">
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <b className="block text-lg">4</b>
-                <span className="text-blue-200">centros integrados</span>
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <b className="block text-lg">100%</b>
-                <span className="text-blue-200">controle por acesso</span>
-              </div>
-            </div>
-          </div>
-          <p className="relative text-xs text-blue-200">
-            fincore · operações organizadas em um só lugar
-          </p>
+          <p className="relative text-sm text-blue-200">fincore · gestão que acompanha suas decisões</p>
         </section>
-        <section className="flex items-center justify-center p-8 sm:p-12">
-          <form onSubmit={submit} className="w-full max-w-sm">
+        <section className="flex items-center justify-center bg-[#f8fafc] p-8 sm:p-14">
+          <form onSubmit={submit} className="w-full max-w-md">
+            <img src="/sistema-financeiro/fincore-logo-transparent.png" alt="Fincore" className="mb-12 w-64 max-w-full" />
             <p className="text-xs font-extrabold tracking-widest text-blue-700">
               BEM-VINDO
             </p>
@@ -363,10 +336,7 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
             <button disabled={busy} className="mt-6 w-full rounded-xl bg-blue-700 py-3.5 text-sm font-bold text-white shadow-lg shadow-blue-700/20 disabled:cursor-wait disabled:opacity-70">
               {busy ? "Entrando..." : "Entrar no Fincore"}
             </button>
-            <div className="mt-6 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-xs leading-relaxed text-blue-900">
-              <b className="block">Acesso protegido</b>
-              <span>Use o e-mail e a senha fornecidos pelo administrador Master.</span>
-            </div>
+            <p className="mt-6 text-center text-xs text-gray-400">Acesso protegido e gerenciado pelo administrador.</p>
           </form>
         </section>
       </div>
@@ -1284,9 +1254,9 @@ function App() {
         className={`fixed z-30 flex h-full w-56 flex-col bg-[#14213d] text-white transition-transform lg:relative ${menu ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}
       >
         <div className="flex justify-between border-b border-white/10 px-5 py-5">
-          <div>
-            <p className="font-extrabold">fincore</p>
-            <p className="text-[11px] text-blue-200/70">Gestão financeira</p>
+          <div className="min-w-0">
+            <img src="/sistema-financeiro/fincore-logo-transparent.png" alt="Fincore" className="h-10 w-32 object-contain object-left brightness-0 invert" />
+            <p className="mt-1 text-[11px] text-blue-200/70">Gestão financeira</p>
           </div>
           <button className="lg:hidden" onClick={() => setMenu(false)}>
             <X />
