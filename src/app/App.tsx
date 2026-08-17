@@ -1078,6 +1078,15 @@ function App() {
     setDataReady(false);
     setDataError("");
     void (async () => {
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+      if (!active) return;
+      if (authError || !user) {
+        setCurrentUser(null);
+        return;
+      }
       const [entryResult, categoryResult, accountResult] = await Promise.all([
         supabase.from("entries").select("*").order("date", { ascending: false }),
         supabase.from("categories").select("*"),
