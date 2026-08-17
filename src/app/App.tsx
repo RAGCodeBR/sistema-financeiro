@@ -52,7 +52,7 @@ type Category = {
   icon?: string;
   color?: string;
 };
-type Account = { id: string; name: string };
+type Account = { id: string; name: string; unit: Unit };
 type User = {
   id: string;
   name: string;
@@ -131,7 +131,7 @@ const baseAccounts: Account[] = [
     "Conta digital",
     "Cartão de crédito",
     "Caixa",
-  ].map((name, index) => ({ id: `conta-${index}`, name })),
+  ].map((name, index) => ({ id: `conta-${index}`, name, unit: "Consultoria" })),
   icons = [
     "🏷️",
     "💼",
@@ -639,7 +639,7 @@ function EntryForm({
                 onChange={(e) => setAccount(e.target.value)}
                 className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal"
               >
-                {accounts.map((a) => (
+                {accounts.filter((a) => a.unit === unit).map((a) => (
                   <option key={a.id}>{a.name}</option>
                 ))}
               </select>
@@ -1016,25 +1016,10 @@ function App() {
       action: "editar" | "excluir";
     } | null>(null),
     [editScope, setEditScope] = useState<"one" | "series">("one"),
-    [entries, setEntries] = useState<Entry[]>(() => {
-      try {
-        return JSON.parse(localStorage.getItem("financepro.entries") || "[]");
-      } catch {
-        return [];
-      }
-    }),
-    [categories, setCategories] = useState<Category[]>(() => {
-      try {
-        const x = JSON.parse(
-          localStorage.getItem("financepro.categories") || "null",
-        );
-        return x?.length ? x : defaults;
-      } catch {
-        return defaults;
-      }
-    }),
+    [entries, setEntries] = useState<Entry[]>([]),
+    [categories, setCategories] = useState<Category[]>([]),
     [accounts, setAccounts] = useState<Account[]>(() =>
-      units.map((unit) => ({ id: unit.name, name: unit.name })),
+      units.map((unit) => ({ id: unit.name, name: unit.name, unit: unit.name })),
     ),
     [filter, setFilter] = useState<Unit | "Todos">("Todos"),
     [entryFilter, setEntryFilter] = useState<"todos" | "pagar" | "receber">(
@@ -1047,24 +1032,11 @@ function App() {
     [month, setMonth] = useState(
       () => new Date(new Date().getFullYear(), new Date().getMonth(), 1),
     );
-  useEffect(
-    () => localStorage.setItem("financepro.entries", JSON.stringify(entries)),
-    [entries],
-  );
   useEffect(() => {
     if (currentUser)
       localStorage.setItem("fincore.user", JSON.stringify(currentUser));
     else localStorage.removeItem("fincore.user");
   }, [currentUser]);
-  useEffect(
-    () =>
-      localStorage.setItem("financepro.categories", JSON.stringify(categories)),
-    [categories],
-  );
-  useEffect(
-    () => localStorage.setItem("financepro.accounts", JSON.stringify(accounts)),
-    [accounts],
-  );
   useEffect(() => {
     let active = true;
     void (async () => {
@@ -1147,6 +1119,7 @@ function App() {
         setAccounts(accountRows.map((row: any) => ({
           id: row.id,
           name: row.name,
+          unit: row.unit as Unit,
         })));
         setDataReady(true);
       } catch (error) {
@@ -1244,13 +1217,18 @@ function App() {
       entries
         .filter((x) => x.account === name && x.status === "realizado")
         .reduce((s, x) => s + (x.kind === "receita" ? x.amount : -x.amount), 0),
-    addAccount = () => {
+    addAccount = async () => {
       if (currentUser.role !== "master") return;
       const name = window.prompt("Nome da nova conta:");
-      if (name?.trim())
-        setAccounts((old) => [...old, { id: id(), name: name.trim() }]);
+      if (!name?.trim()) return;
+      const unit = window.prompt("Centro de custo (Marketing, Sítio, Consultoria ou Pessoa Física):", "Consultoria") as Unit | null;
+      if (!unit || !units.some((item) => item.name === unit)) return;
+      const account = { id: id(), name: name.trim(), unit };
+      const { error } = await supabase.from("accounts").insert(account);
+      if (error) throw error;
+      setAccounts((old) => [...old, account]);
     },
-    adjust = (account: Account) => {
+    adjust = async (account: Account) => {
       if (currentUser.role !== "master") return;
       const wanted = window.prompt(
         `Novo saldo de :`,
@@ -1261,24 +1239,23 @@ function App() {
       if (Number.isNaN(target)) return;
       const difference = target - balance(account.name);
       if (!difference) return;
-      setEntries((old) => [
-        {
-          id: id(),
-          kind: difference > 0 ? "receita" : "despesa",
-          unit: account.name as Unit,
-          account: account.name,
-          category: "Ajuste de saldo",
-          description: "Ajuste de saldo",
-          beneficiary: "",
-          pix: "",
-          amount: Math.abs(difference),
-          date: new Date().toISOString().slice(0, 10),
-          status: "realizado",
-          recurrence: "nenhuma",
-          installments: 1,
-        },
-        ...old,
-      ]);
+      const adjustment: Entry = {
+        id: id(),
+        kind: difference > 0 ? "receita" : "despesa",
+        unit: account.unit,
+        account: account.name,
+        category: "Ajuste de saldo",
+        description: "Ajuste de saldo",
+        beneficiary: "",
+        pix: "",
+        amount: Math.abs(difference),
+        date: new Date().toISOString().slice(0, 10),
+        status: "realizado",
+        recurrence: "nenhuma",
+        installments: 1,
+      };
+      await saveRemoteEntries([adjustment]);
+      setEntries((old) => [adjustment, ...old]);
     };
   const key = month.toISOString().slice(0, 7),
     today = new Date().toISOString().slice(0, 10),
@@ -1362,29 +1339,23 @@ function App() {
       await saveRemoteEntries(created);
       setEntries((old) => [...created, ...old]);
     },
-    settle = (x: Entry) =>
-      setEntries((old) =>
-        old.map((v) =>
-          v.id === x.id
-            ? {
-                ...v,
-                status: v.status === "realizado" ? "previsto" : "realizado",
-              }
-            : v,
-        ),
-      ),
-    remove = (x: Entry, scope: "one" | "series" = "one") =>
-      setEntries((old) => {
-        const removed = old.filter((v) =>
-          scope === "series" && x.seriesId
-            ? v.seriesId === x.seriesId
-            : v.id === x.id,
-        );
-        void deleteRemoteEntries(removed.map((entry) => entry.id)).catch(
-          (error) => console.error("Fincore: falha ao excluir lançamento", error),
-        );
-        return old.filter((v) => !removed.includes(v));
-      }),
+    settle = async (x: Entry) => {
+      const updated = {
+        ...x,
+        status: x.status === "realizado" ? "previsto" : "realizado",
+      } as Entry;
+      await saveRemoteEntries([updated]);
+      setEntries((old) => old.map((v) => (v.id === x.id ? updated : v)));
+    },
+    remove = async (x: Entry, scope: "one" | "series" = "one") => {
+      const removed = entries.filter((v) =>
+        scope === "series" && x.seriesId
+          ? v.seriesId === x.seriesId
+          : v.id === x.id,
+      );
+      await deleteRemoteEntries(removed.map((entry) => entry.id));
+      setEntries((old) => old.filter((v) => !removed.some((entry) => entry.id === v.id)));
+    },
     open = (kind: Kind) => {
       setEditing(null);
       setModal(kind);
@@ -1580,7 +1551,7 @@ function App() {
                     .filter(
                       (account) =>
                         currentUser.role === "master" ||
-                        currentUser.units.includes(account.name as Unit),
+                        currentUser.units.includes(account.unit),
                     )
                     .map((account) => (
                       <div key={account.id} className="rounded-xl border p-4">
@@ -1744,7 +1715,7 @@ function App() {
                   .filter(
                     (account) =>
                       currentUser.role === "master" ||
-                      currentUser.units.includes(account.name as Unit),
+                        currentUser.units.includes(account.unit),
                   )
                   .map((account) => (
                     <article
@@ -1843,15 +1814,14 @@ function App() {
                                   Editar
                                 </button>
                                 <button
-                                  onClick={() => {
+                                  onClick={async () => {
                                     if (window.confirm(`Excluir ${c.name}?`)) {
-                                      void deleteRemoteCategory(c.id).catch(
-                                        (error) =>
-                                          console.error(
-                                            "Fincore: falha ao excluir categoria",
-                                            error,
-                                          ),
-                                      );
+                                      try {
+                                        await deleteRemoteCategory(c.id);
+                                      } catch (error) {
+                                        console.error("Fincore: falha ao excluir categoria", error);
+                                        return;
+                                      }
                                       setCategories((old) =>
                                         old.filter((x) => x.id !== c.id),
                                       );
