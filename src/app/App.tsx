@@ -1339,6 +1339,10 @@ function App() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <div className="hidden items-center gap-2 sm:flex">
+              <button onClick={() => open("despesa")} className="rounded-lg bg-red-50 px-3 py-2 text-xs font-extrabold text-red-600 hover:bg-red-100">− Despesa</button>
+              <button onClick={() => open("receita")} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-extrabold text-white hover:bg-emerald-700">+ Receita</button>
+            </div>
             <div className="relative">
               <Bell className="m-2 h-5 w-5 text-gray-400" />
               {pending.length > 0 && (
@@ -1830,20 +1834,6 @@ function App() {
           }
         />
       )}
-      <div className="fixed bottom-5 left-5 z-40 flex gap-2 rounded-2xl border bg-white p-2 shadow-xl lg:left-64">
-        <button
-          onClick={() => open("despesa")}
-          className="flex flex-col items-center rounded-xl px-4 py-2 text-xs font-extrabold text-red-600 hover:bg-red-50"
-        >
-          <span className="text-2xl">−</span>Despesa
-        </button>
-        <button
-          onClick={() => open("receita")}
-          className="flex flex-col items-center rounded-xl bg-emerald-600 px-4 py-2 text-xs font-extrabold text-white"
-        >
-          <span className="text-2xl">+</span>Receita
-        </button>
-      </div>
     </div>
   );
 }
