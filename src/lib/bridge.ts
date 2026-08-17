@@ -30,6 +30,19 @@ function entryRow(entry: any) {
   };
 }
 
+export async function saveRemoteEntries(entries: any[]) {
+  const valid = entries.filter((row) => uuid(row.id));
+  if (!valid.length) return;
+  const { error } = await supabase.from("entries").upsert(valid.map(entryRow));
+  if (error) throw error;
+}
+
+export async function saveRemoteCategory(category: any) {
+  if (!uuid(category.id)) return;
+  const { error } = await supabase.from("categories").upsert(category);
+  if (error) throw error;
+}
+
 async function reconcile(key: string, _previousValue: string | null, nextValue: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return;
@@ -40,8 +53,8 @@ async function reconcile(key: string, _previousValue: string | null, nextValue: 
   if (key === "financepro.entries") {
     const valid = current.filter((row: any) => uuid(row.id));
     if (valid.length) {
-      const { error } = await supabase.from("entries").upsert(valid.map(entryRow));
-      if (error) console.error("Fincore: falha ao salvar lançamento", error);
+      try { await saveRemoteEntries(valid); }
+      catch (error) { console.error("Fincore: falha ao salvar lançamento", error); }
     }
     return;
   }

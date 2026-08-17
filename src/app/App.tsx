@@ -1,6 +1,11 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { deleteRemoteCategory, deleteRemoteEntries } from "../lib/bridge";
+import {
+  deleteRemoteCategory,
+  deleteRemoteEntries,
+  saveRemoteCategory,
+  saveRemoteEntries,
+} from "../lib/bridge";
 import {
   Bell,
   CalendarClock,
@@ -351,7 +356,7 @@ function NewCategory({
   allowedUnits,
 }: {
   close: () => void;
-  save: (c: Category) => void;
+  save: (c: Category) => Promise<void>;
   category?: Category | null;
   allowedUnits: typeof units;
 }) {
@@ -361,7 +366,9 @@ function NewCategory({
       category?.unit ?? allowedUnits[0]?.name ?? "Consultoria",
     ),
     [icon, setIcon] = useState(category?.icon ?? "🏷️"),
-    [color, setColor] = useState(category?.color ?? "#3b82f6");
+    [color, setColor] = useState(category?.color ?? "#3b82f6"),
+    [saving, setSaving] = useState(false),
+    [saveError, setSaveError] = useState("");
   const upload = (e: ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
@@ -372,18 +379,26 @@ function NewCategory({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4">
       <form
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault();
           if (name.trim()) {
-            save({
-              id: category?.id ?? id(),
-              name: name.trim(),
-              kind,
-              unit,
-              icon,
-              color,
-            });
-            close();
+            setSaving(true);
+            setSaveError("");
+            try {
+              await save({
+                id: category?.id ?? id(),
+                name: name.trim(),
+                kind,
+                unit,
+                icon,
+                color,
+              });
+              close();
+            } catch (error) {
+              setSaveError(error instanceof Error ? error.message : "Não foi possível salvar no banco.");
+            } finally {
+              setSaving(false);
+            }
           }
         }}
         className="w-full max-w-lg rounded-2xl bg-white shadow-2xl"
@@ -471,7 +486,7 @@ function NewCategory({
             />
           </label>
         </div>
-        <footer className="flex gap-3 border-t bg-gray-50 px-6 py-4">
+        <footer className="relative flex gap-3 border-t bg-gray-50 px-6 py-4">
           <button
             type="button"
             onClick={close}
@@ -479,9 +494,10 @@ function NewCategory({
           >
             Cancelar
           </button>
-          <button className="flex-1 rounded-xl bg-blue-700 py-2.5 text-sm font-bold text-white">
-            {category ? "Salvar alteracoes" : "Criar categoria"}
+          <button disabled={saving} className="flex-1 rounded-xl bg-blue-700 py-2.5 text-sm font-bold text-white disabled:opacity-60">
+            {saving ? "Salvando no banco..." : category ? "Salvar alteracoes" : "Criar categoria"}
           </button>
+          {saveError && <p className="absolute -top-5 left-6 text-xs font-bold text-red-600">{saveError}</p>}
         </footer>
       </form>
     </div>
@@ -504,7 +520,7 @@ function EntryForm({
   editing: Entry | null;
   scope?: "one" | "series";
   close: () => void;
-  save: (x: Omit<Entry, "id">, scope: "one" | "series") => void;
+  save: (x: Omit<Entry, "id">, scope: "one" | "series") => Promise<void>;
 }) {
   const [kind, setKind] = useState<Kind>(editing?.kind ?? initial),
     [unit, setUnit] = useState<Unit>(editing?.unit ?? "Consultoria"),
@@ -525,7 +541,9 @@ function EntryForm({
     ),
     [recurrence, setRecurrence] = useState(editing?.recurrence === "mensal"),
     [installments, setInstallments] = useState(editing?.installments ?? 1),
-    [scope, setScope] = useState<"one" | "series">(initialScope ?? "one");
+    [scope, setScope] = useState<"one" | "series">(initialScope ?? "one"),
+    [saving, setSaving] = useState(false),
+    [saveError, setSaveError] = useState("");
   const available = categories.filter(
     (c) => c.unit === unit && c.kind === kind,
   );
@@ -533,11 +551,14 @@ function EntryForm({
     if (!available.some((c) => c.name === category))
       setCategory(available[0]?.name ?? "");
   }, [kind, unit, categories]);
-  const submit = (e: FormEvent) => {
+  const submit = async (e: FormEvent) => {
     e.preventDefault();
     const v = Number(amount.replace(",", "."));
-    if (description.trim() && v && category)
-      save(
+    if (!description.trim() || !v || !category) return;
+    setSaving(true);
+    setSaveError("");
+    try {
+      await save(
         {
           kind,
           unit,
@@ -555,7 +576,14 @@ function EntryForm({
         },
         scope,
       );
-    close();
+      close();
+    } catch (error) {
+      setSaveError(
+        error instanceof Error ? error.message : "Não foi possível salvar no banco.",
+      );
+    } finally {
+      setSaving(false);
+    }
   };
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4">
@@ -769,7 +797,7 @@ function EntryForm({
             )}
           </div>
         </div>
-        <footer className="flex gap-3 border-t bg-gray-50 px-6 py-4">
+        <footer className="relative flex gap-3 border-t bg-gray-50 px-6 py-4">
           <button
             type="button"
             onClick={close}
@@ -777,9 +805,10 @@ function EntryForm({
           >
             Cancelar
           </button>
-          <button className="flex-1 rounded-xl bg-blue-700 py-2.5 text-sm font-bold text-white">
-            Salvar
+          <button disabled={saving} className="flex-1 rounded-xl bg-blue-700 py-2.5 text-sm font-bold text-white disabled:opacity-60">
+            {saving ? "Salvando no banco..." : "Salvar"}
           </button>
+          {saveError && <p className="absolute -top-5 left-6 text-xs font-bold text-red-600">{saveError}</p>}
         </footer>
       </form>
     </div>
@@ -1161,10 +1190,9 @@ function App() {
     },
     move = (n: number) =>
       setMonth((v) => new Date(v.getFullYear(), v.getMonth() + n, 1));
-  const save = (data: Omit<Entry, "id">, scope: "one" | "series") => {
+  const save = async (data: Omit<Entry, "id">, scope: "one" | "series") => {
       if (editing) {
-        setEntries((old) =>
-          old.map((x) =>
+        const updated = entries.map((x) =>
             (
               scope === "series" && editing.seriesId
                 ? x.seriesId === editing.seriesId
@@ -1178,8 +1206,14 @@ function App() {
                   installment: x.installment,
                 }
               : x,
-          ),
         );
+        const changed = updated.filter((x) =>
+          scope === "series" && editing.seriesId
+            ? x.seriesId === editing.seriesId
+            : x.id === editing.id,
+        );
+        await saveRemoteEntries(changed);
+        setEntries(updated);
         setEditing(null);
         return;
       }
@@ -1189,8 +1223,7 @@ function App() {
             ? id()
             : undefined,
         count = data.recurrence === "mensal" ? 1200 : data.installments;
-      setEntries((old) => [
-        ...Array.from({ length: count }, (_, i) => {
+      const created = Array.from({ length: count }, (_, i) => {
           const due = new Date(base);
           due.setMonth(base.getMonth() + i);
           return {
@@ -1208,9 +1241,9 @@ function App() {
                 ? `${i + 1}/${data.installments}`
                 : undefined,
           };
-        }),
-        ...old,
-      ]);
+        });
+      await saveRemoteEntries(created);
+      setEntries((old) => [...created, ...old]);
     },
     settle = (x: Entry) =>
       setEntries((old) =>
@@ -1863,7 +1896,10 @@ function App() {
         <NewCategory
           close={() => setCategoryModal(false)}
           allowedUnits={allowedUnits}
-          save={(c) => setCategories((x) => [...x, c])}
+          save={async (c) => {
+            await saveRemoteCategory(c);
+            setCategories((x) => [...x, c]);
+          }}
         />
       )}{" "}
       {editingCategory && (
@@ -1871,9 +1907,10 @@ function App() {
           category={editingCategory}
           allowedUnits={allowedUnits}
           close={() => setEditingCategory(null)}
-          save={(c) =>
-            setCategories((old) => old.map((x) => (x.id === c.id ? c : x)))
-          }
+          save={async (c) => {
+            await saveRemoteCategory(c);
+            setCategories((old) => old.map((x) => (x.id === c.id ? c : x)));
+          }}
         />
       )}
     </div>
