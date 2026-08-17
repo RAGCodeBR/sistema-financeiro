@@ -1002,13 +1002,11 @@ function Breakdown({
 }
 function App() {
   const [screen, setScreen] = useState("dashboard"),
-    [currentUser, setCurrentUser] = useState<User | null>(() => {
-      try {
-        return JSON.parse(localStorage.getItem("fincore.user") || "null");
-      } catch {
-        return null;
-      }
-    }),
+    // The cached profile is only a convenience for the next paint. It can never
+    // be the source of truth: a different Supabase session may be active in this
+    // browser after a logout/login. Start empty and bootstrap from Supabase.
+    [currentUser, setCurrentUser] = useState<User | null>(null),
+    [authReady, setAuthReady] = useState(false),
     [modal, setModal] = useState<Kind | null>(null),
     [categoryModal, setCategoryModal] = useState(false),
     [editingCategory, setEditingCategory] = useState<Category | null>(null),
@@ -1067,6 +1065,44 @@ function App() {
     () => localStorage.setItem("financepro.accounts", JSON.stringify(accounts)),
     [accounts],
   );
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      const {
+        data: { user: authUser },
+        error: authError,
+      } = await supabase.auth.getUser();
+      if (!active) return;
+      if (authError || !authUser) {
+        setCurrentUser(null);
+        setAuthReady(true);
+        return;
+      }
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("full_name, email, role, allowed_units")
+        .eq("id", authUser.id)
+        .single();
+      if (!active) return;
+      if (profileError || !profile) {
+        await supabase.auth.signOut();
+        setCurrentUser(null);
+        setAuthReady(true);
+        return;
+      }
+      setCurrentUser({
+        id: authUser.id,
+        name: profile.full_name,
+        email: profile.email || authUser.email || "",
+        role: profile.role as User["role"],
+        units: profile.allowed_units as Unit[],
+      });
+      setAuthReady(true);
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
   useEffect(() => {
     let active = true;
     if (!currentUser) {
@@ -1165,6 +1201,15 @@ function App() {
     await supabase.auth.signOut();
     setCurrentUser(null);
   };
+  if (!authReady)
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#f2f4f8] p-6 text-center">
+        <div className="rounded-2xl bg-white px-8 py-7 shadow-sm">
+          <p className="text-lg font-extrabold text-[#14213d]">Verificando seu acesso</p>
+          <p className="mt-2 text-sm text-gray-500">Conectando à sua conta Fincore...</p>
+        </div>
+      </main>
+    );
   if (!currentUser) return <Login onLogin={setCurrentUser} />;
   if (!dataReady || dataError)
     return (
