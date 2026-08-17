@@ -1,5 +1,5 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
-import { supabase } from "../lib/supabase";
+import { readAuthenticatedRows, supabase } from "../lib/supabase";
 import {
   deleteRemoteCategory,
   deleteRemoteEntries,
@@ -1123,29 +1123,30 @@ function App() {
         setCurrentUser(null);
         return;
       }
-      const [entryResult, categoryResult, accountResult] = await Promise.all([
-        supabase.from("entries").select("*").order("date", { ascending: false }),
-        supabase.from("categories").select("*"),
-        supabase.from("accounts").select("*"),
-      ]);
-      if (!active) return;
-      const error = entryResult.error || categoryResult.error || accountResult.error;
-      if (error) {
+      try {
+        const [entryRows, categoryRows, accountRows] = await Promise.all([
+          readAuthenticatedRows<any>("entries", "date.desc"),
+          readAuthenticatedRows<Category>("categories"),
+          readAuthenticatedRows<any>("accounts"),
+        ]);
+        if (!active) return;
+        setEntries(entryRows.map((row: any) => ({
+          ...row,
+          seriesId: row.series_id || undefined,
+          amount: Number(row.amount),
+        })));
+        setCategories(categoryRows);
+        setAccounts(accountRows.map((row: any) => ({
+          id: row.id,
+          name: row.name,
+        })));
+        setDataReady(true);
+      } catch (error) {
+        if (!active) return;
+        console.error("Fincore: falha ao carregar dados", error);
         setDataError("Não foi possível carregar os dados do banco. Tente novamente.");
         setDataReady(true);
-        return;
       }
-      setEntries((entryResult.data || []).map((row: any) => ({
-        ...row,
-        seriesId: row.series_id || undefined,
-        amount: Number(row.amount),
-      })));
-      setCategories(categoryResult.data || []);
-      setAccounts((accountResult.data || []).map((row: any) => ({
-        id: row.id,
-        name: row.name,
-      })));
-      setDataReady(true);
     })();
     return () => {
       active = false;
