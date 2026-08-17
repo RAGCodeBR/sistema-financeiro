@@ -1,5 +1,6 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { deleteRemoteCategory, deleteRemoteEntries } from "../lib/bridge";
 import {
   Bell,
   CalendarClock,
@@ -868,6 +869,11 @@ function Entries({
                   {x.unit} · {x.category} · {x.account} ·{" "}
                   {new Date(`${x.date}T12:00:00`).toLocaleDateString("pt-BR")}
                 </p>
+                {x.pix && (
+                  <p className="mt-1 truncate text-xs font-bold text-blue-700">
+                    Chave Pix: {x.pix}
+                  </p>
+                )}
               </div>
               <div className="text-right">
                 <p
@@ -1218,13 +1224,17 @@ function App() {
         ),
       ),
     remove = (x: Entry, scope: "one" | "series" = "one") =>
-      setEntries((old) =>
-        old.filter((v) =>
+      setEntries((old) => {
+        const removed = old.filter((v) =>
           scope === "series" && x.seriesId
-            ? v.seriesId !== x.seriesId
-            : v.id !== x.id,
-        ),
-      ),
+            ? v.seriesId === x.seriesId
+            : v.id === x.id,
+        );
+        void deleteRemoteEntries(removed.map((entry) => entry.id)).catch(
+          (error) => console.error("Fincore: falha ao excluir lançamento", error),
+        );
+        return old.filter((v) => !removed.includes(v));
+      }),
     open = (kind: Kind) => {
       setEditing(null);
       setModal(kind);
@@ -1684,10 +1694,18 @@ function App() {
                                 </button>
                                 <button
                                   onClick={() => {
-                                    if (window.confirm(`Excluir ${c.name}?`))
+                                    if (window.confirm(`Excluir ${c.name}?`)) {
+                                      void deleteRemoteCategory(c.id).catch(
+                                        (error) =>
+                                          console.error(
+                                            "Fincore: falha ao excluir categoria",
+                                            error,
+                                          ),
+                                      );
                                       setCategories((old) =>
                                         old.filter((x) => x.id !== c.id),
                                       );
+                                    }
                                   }}
                                   className="text-gray-300 hover:text-red-600"
                                 >
@@ -1740,22 +1758,44 @@ function App() {
                 </div>
               </div>
               <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    ["todos", "Todos"],
-                    ["pagar", "Contas a pagar"],
-                    ["receber", "Contas a receber"],
-                  ].map(([value, label]) => (
+                <div className="space-y-2">
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      ["todos", "Todos"],
+                      ["pagar", "Contas a pagar"],
+                      ["receber", "Contas a receber"],
+                    ].map(([value, label]) => (
+                      <button
+                        key={value}
+                        onClick={() =>
+                          setEntryFilter(value as "todos" | "pagar" | "receber")
+                        }
+                        className={`rounded-full px-3 py-2 text-xs font-bold ${entryFilter === value ? "bg-[#14213d] text-white" : "border bg-white text-gray-600 hover:bg-gray-50"}`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
+                      Centro de custo:
+                    </span>
                     <button
-                      key={value}
-                      onClick={() =>
-                        setEntryFilter(value as "todos" | "pagar" | "receber")
-                      }
-                      className={`rounded-full px-3 py-2 text-xs font-bold ${entryFilter === value ? "bg-[#14213d] text-white" : "border bg-white text-gray-600 hover:bg-gray-50"}`}
+                      onClick={() => setFilter("Todos")}
+                      className={`rounded-full px-2.5 py-1.5 text-[11px] font-bold ${filter === "Todos" ? "bg-blue-700 text-white" : "border bg-white text-gray-600"}`}
                     >
-                      {label}
+                      Todos
                     </button>
-                  ))}
+                    {allowedUnits.map((unit) => (
+                      <button
+                        key={unit.name}
+                        onClick={() => setFilter(unit.name)}
+                        className={`rounded-full px-2.5 py-1.5 text-[11px] font-bold ${filter === unit.name ? "bg-blue-700 text-white" : "border bg-white text-gray-600"}`}
+                      >
+                        {unit.name}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 <Month value={month} move={move} />
               </div>

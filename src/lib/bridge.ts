@@ -30,21 +30,14 @@ function entryRow(entry: any) {
   };
 }
 
-async function reconcile(key: string, previousValue: string | null, nextValue: string) {
+async function reconcile(key: string, _previousValue: string | null, nextValue: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return;
 
-  const previous = readRows(previousValue);
   const current = readRows(nextValue);
   if (!Array.isArray(current)) return;
 
   if (key === "financepro.entries") {
-    const currentIds = new Set(current.map((row: any) => row.id));
-    const deleted = previous.map((row: any) => row.id).filter((id: unknown) => uuid(id) && !currentIds.has(id));
-    if (deleted.length) {
-      const { error } = await supabase.from("entries").delete().in("id", deleted);
-      if (error) console.error("Fincore: falha ao excluir lançamento", error);
-    }
     const valid = current.filter((row: any) => uuid(row.id));
     if (valid.length) {
       const { error } = await supabase.from("entries").upsert(valid.map(entryRow));
@@ -53,17 +46,26 @@ async function reconcile(key: string, previousValue: string | null, nextValue: s
     return;
   }
 
-  const currentIds = new Set(current.map((row: any) => row.id));
-  const deleted = previous.map((row: any) => row.id).filter((id: unknown) => uuid(id) && !currentIds.has(id));
-  if (deleted.length) {
-    const { error } = await supabase.from("categories").delete().in("id", deleted);
-    if (error) console.error("Fincore: falha ao excluir categoria", error);
-  }
   const valid = current.filter((row: any) => uuid(row.id));
   if (valid.length) {
     const { error } = await supabase.from("categories").upsert(valid);
     if (error) console.error("Fincore: falha ao salvar categoria", error);
   }
+}
+
+// Exclusions use dedicated calls. A session change replaces the local cache with
+// only the permitted records; that must never be interpreted as a database delete.
+export async function deleteRemoteEntries(ids: string[]) {
+  const valid = ids.filter(uuid);
+  if (!valid.length) return;
+  const { error } = await supabase.from("entries").delete().in("id", valid);
+  if (error) throw error;
+}
+
+export async function deleteRemoteCategory(categoryId: string) {
+  if (!uuid(categoryId)) return;
+  const { error } = await supabase.from("categories").delete().eq("id", categoryId);
+  if (error) throw error;
 }
 
 Storage.prototype.setItem = function setItem(key: string, value: string) {
