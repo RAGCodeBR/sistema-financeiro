@@ -1117,8 +1117,8 @@ function Reports({ entries, accounts, allowedUnits }: { entries: Entry[]; accoun
     return { label: date.toLocaleDateString("pt-BR", { month: "short" }).replace(".", ""), income: values.filter((entry) => entry.kind === "receita").reduce((sum, entry) => sum + entry.amount, 0), expense: values.filter((entry) => entry.kind === "despesa").reduce((sum, entry) => sum + entry.amount, 0) };
   });
   const monthlyMax = Math.max(1, ...monthly.flatMap((item) => [item.income, item.expense]));
-  const beneficiaries = Object.entries(filtered.reduce<Record<string, number>>((result, entry) => {
-    const label = entry.beneficiary || "Não informado";
+  const beneficiaries = Object.entries(filtered.filter((entry) => entry.beneficiary.trim()).reduce<Record<string, number>>((result, entry) => {
+    const label = entry.beneficiary.trim();
     result[label] = (result[label] || 0) + entry.amount;
     return result;
   }, {})).sort((a, b) => b[1] - a[1]).slice(0, 5);
