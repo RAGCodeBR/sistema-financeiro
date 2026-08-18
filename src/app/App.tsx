@@ -571,7 +571,6 @@ function NewCategory({
 function EntryForm({
   kind: initial,
   categories,
-  accounts,
   allowedUnits,
   editing,
   scope: initialScope,
@@ -580,7 +579,6 @@ function EntryForm({
 }: {
   kind: Kind;
   categories: Category[];
-  accounts: Account[];
   allowedUnits: typeof units;
   editing: Entry | null;
   scope?: "one" | "series";
@@ -590,9 +588,6 @@ function EntryForm({
   const [kind, setKind] = useState<Kind>(editing?.kind ?? initial),
     [unit, setUnit] = useState<Unit>(editing?.unit ?? "Consultoria"),
     [category, setCategory] = useState(editing?.category ?? ""),
-    [account, setAccount] = useState(
-      editing?.account ?? accounts[0]?.name ?? "",
-    ),
     [description, setDescription] = useState(editing?.description ?? ""),
     [beneficiary, setBeneficiary] = useState(editing?.beneficiary ?? ""),
     [pix, setPix] = useState(editing?.pix ?? ""),
@@ -627,7 +622,9 @@ function EntryForm({
         {
           kind,
           unit,
-          account,
+          // Every centre has its own financial account. Keeping this derived
+          // prevents the duplicated centre/account selectors from diverging.
+          account: unit,
           category,
           description,
           beneficiary,
@@ -686,7 +683,7 @@ function EntryForm({
               Receita
             </button>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="max-w-sm">
             <label className="text-xs font-bold">
               Centro de custo
               <select
@@ -696,18 +693,6 @@ function EntryForm({
               >
                 {allowedUnits.map((u) => (
                   <option key={u.name}>{u.name}</option>
-                ))}
-              </select>
-            </label>
-            <label className="text-xs font-bold">
-              Conta / cartão
-              <select
-                value={account}
-                onChange={(e) => setAccount(e.target.value)}
-                className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal"
-              >
-                {accounts.filter((a) => a.unit === unit).map((a) => (
-                  <option key={a.id}>{a.name}</option>
                 ))}
               </select>
             </label>
@@ -1462,8 +1447,8 @@ function App() {
         .filter((x) => x.kind === k && (!status || x.status === status))
         .reduce((s, x) => s + x.amount, 0),
     totals = {
-      income: sum("receita"),
-      expense: sum("despesa"),
+      income: sum("receita", "realizado"),
+      expense: sum("despesa", "realizado"),
       pay: sum("despesa", "previsto"),
       receive: sum("receita", "previsto"),
     },
@@ -1686,25 +1671,25 @@ function App() {
               <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 {[
                   [
-                    "Receitas",
+                    "Receitas recebidas",
                     totals.income,
                     TrendingUp,
                     "text-emerald-600 bg-emerald-50",
                   ],
                   [
-                    "Despesas",
+                    "Despesas pagas",
                     totals.expense,
                     TrendingDown,
                     "text-red-600 bg-red-50",
                   ],
                   [
-                    "Contas a pagar",
+                    "A pagar",
                     totals.pay,
                     CreditCard,
                     "text-orange-600 bg-orange-50",
                   ],
                   [
-                    "Contas a receber",
+                    "A receber",
                     totals.receive,
                     Wallet,
                     "text-blue-600 bg-blue-50",
@@ -1783,10 +1768,10 @@ function App() {
                 {allowedUnits.map((u) => {
                   const d = current.filter((x) => x.unit === u.name),
                     income = d
-                      .filter((x) => x.kind === "receita")
+                      .filter((x) => x.kind === "receita" && x.status === "realizado")
                       .reduce((s, x) => s + x.amount, 0),
                     expense = d
-                      .filter((x) => x.kind === "despesa")
+                      .filter((x) => x.kind === "despesa" && x.status === "realizado")
                       .reduce((s, x) => s + x.amount, 0);
                   return (
                     <article
@@ -1810,13 +1795,13 @@ function App() {
                       </div>
                       <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
                         <p>
-                          Entrou
+                          Receitas recebidas
                           <b className="block text-emerald-600">
                             {fmt(income)}
                           </b>
                         </p>
                         <p>
-                          Saiu
+                          Despesas pagas
                           <b className="block text-red-600">{fmt(expense)}</b>
                         </p>
                         <p>
@@ -2143,7 +2128,6 @@ function App() {
         <EntryForm
           kind={modal}
           categories={categories}
-          accounts={accounts}
           allowedUnits={allowedUnits}
           editing={editing}
           scope={editScope}
