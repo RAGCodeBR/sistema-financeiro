@@ -151,12 +151,65 @@ const baseAccounts: Account[] = [
     "💳",
   ];
 const id = () => crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+const recurringOccurrenceId = (seriesId: string, date: string) => {
+  const source = `${seriesId}:${date}`;
+  let a = 0x811c9dc5, b = 0x9e3779b9, c = 0x85ebca6b, d = 0xc2b2ae35;
+  for (let i = 0; i < source.length; i += 1) {
+    const code = source.charCodeAt(i);
+    a = Math.imul(a ^ code, 0x01000193);
+    b = Math.imul(b ^ code, 0x85ebca6b);
+    c = Math.imul(c ^ code, 0xc2b2ae35);
+    d = Math.imul(d ^ code, 0x27d4eb2f);
+  }
+  const raw = [a, b, c, d]
+    .map((value) => (value >>> 0).toString(16).padStart(8, "0"))
+    .join("");
+  return `${raw.slice(0, 8)}-${raw.slice(8, 12)}-4${raw.slice(13, 16)}-8${raw.slice(17, 20)}-${raw.slice(20, 32)}`;
+};
 const fmt = (n: number) =>
   n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const labelMonth = (d: Date) =>
   d
     .toLocaleDateString("pt-BR", { month: "long", year: "numeric" })
     .replace(/^./, (c) => c.toUpperCase());
+
+function nextRecurringEntries(entries: Entry[]) {
+  const endOfWindow = new Date(
+    new Date().getFullYear(),
+    new Date().getMonth() + 36,
+    0,
+  );
+  const generated: Entry[] = [];
+  const series = new Map<string, Entry[]>();
+
+  entries
+    .filter((entry) => entry.recurrence === "mensal" && entry.seriesId)
+    .forEach((entry) => {
+      const group = series.get(entry.seriesId!) || [];
+      group.push(entry);
+      series.set(entry.seriesId!, group);
+    });
+
+  series.forEach((occurrences) => {
+    const last = [...occurrences].sort((a, b) => a.date.localeCompare(b.date)).at(-1);
+    if (!last) return;
+    const nextDate = new Date(`${last.date}T12:00:00`);
+    nextDate.setMonth(nextDate.getMonth() + 1);
+    while (nextDate <= endOfWindow) {
+      generated.push({
+        ...last,
+        // Deterministic id makes this operation safe if Master and an operator
+        // open the same centre at the same moment: both upsert the same month.
+        id: recurringOccurrenceId(last.seriesId!, nextDate.toISOString().slice(0, 10)),
+        date: nextDate.toISOString().slice(0, 10),
+        status: "previsto",
+        installment: undefined,
+      });
+      nextDate.setMonth(nextDate.getMonth() + 1);
+    }
+  });
+  return generated;
+}
 function Icon({
   category,
   small = false,
@@ -1111,11 +1164,27 @@ function App() {
           readAuthenticatedRows<any>("accounts"),
         ]);
         if (!active) return;
-        setEntries(entryRows.map((row: any) => ({
+        const loadedEntries = entryRows.map((row: any) => ({
           ...row,
           seriesId: row.series_id || undefined,
           amount: Number(row.amount),
-        })));
+        })) as Entry[];
+        // Keep recurring series alive without pre-creating decades of records.
+        // Only missing months inside the rolling three-year window are written.
+        const projectedEntries = nextRecurringEntries(loadedEntries);
+        let entriesToShow = loadedEntries;
+        if (projectedEntries.length) {
+          try {
+            await saveRemoteEntries(projectedEntries);
+            entriesToShow = [...projectedEntries, ...loadedEntries];
+          } catch (projectionError) {
+            // Existing financial data remains available even if extending the
+            // forecast fails; it will be retried the next time the app opens.
+            console.error("Fincore: falha ao estender recorrências", projectionError);
+          }
+        }
+        if (!active) return;
+        setEntries(entriesToShow);
         setCategories(categoryRows);
         setAccounts(accountRows.map((row: any) => ({
           id: row.id,
