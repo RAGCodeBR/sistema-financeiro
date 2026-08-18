@@ -1,5 +1,5 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
-import { readAuthenticatedRows, supabase } from "../lib/supabase";
+import { readAuthenticatedRows, supabase, supabasePublishableKey, supabaseUrl } from "../lib/supabase";
 import {
   deleteRemoteCategory,
   deleteRemoteEntries,
@@ -330,7 +330,11 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
     setError("");
     const { data, error: authError } = await supabase.auth.signInWithPassword({ email, password });
     if (authError || !data.user) {
-      setError("E-mail ou senha inválidos.");
+      setError(
+        authError?.message.toLowerCase().includes("email not confirmed")
+          ? "Este acesso ainda precisa ser ativado pelo link enviado ao e-mail cadastrado."
+          : "E-mail ou senha inválidos.",
+      );
       setBusy(false);
       return;
     }
@@ -1306,6 +1310,13 @@ function App() {
     const { data: sessionData } = await supabase.auth.getSession();
     const masterSession = sessionData.session;
     if (!masterSession) throw new Error("Sua sessão expirou. Entre novamente para criar usuários.");
+    const settingsResponse = await fetch(`${supabaseUrl}/auth/v1/settings`, {
+      headers: { apikey: supabasePublishableKey },
+    });
+    const settings = settingsResponse.ok ? await settingsResponse.json() : null;
+    if (settings?.mailer_autoconfirm === false) {
+      throw new Error("A criação de acessos está bloqueada: o Supabase exige confirmação por e-mail. Desative “Confirm email” em Authentication > Providers > Email para que as senhas criadas pelo Master funcionem imediatamente.");
+    }
     const { data, error } = await supabase.auth.signUp({
       email: email.trim(),
       password,
