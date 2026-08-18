@@ -162,6 +162,12 @@ const baseAccounts: Account[] = [
     "💳",
   ];
 const id = () => crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+const entryScheduleLabel = (entry: Entry) =>
+  entry.recurrence === "mensal"
+    ? "Recorrente mensal"
+    : entry.installment
+      ? `Parcela ${entry.installment}`
+      : "Lançamento único";
 const recurringOccurrenceId = (seriesId: string, date: string) => {
   const source = `${seriesId}:${date}`;
   let a = 0x811c9dc5, b = 0x9e3779b9, c = 0x85ebca6b, d = 0xc2b2ae35;
@@ -980,8 +986,7 @@ function Entries({
                   {fmt(x.amount)}
                 </p>
                 <p className="text-[10px] font-bold uppercase text-gray-400">
-                  {x.status}
-                  {x.recurrence === "mensal" ? " · mensal" : ""}
+                  {entryScheduleLabel(x)}
                 </p>
               </div>
               <div className="flex gap-2">
@@ -1577,10 +1582,10 @@ function App() {
       <aside
         className={`fixed z-30 flex h-full w-56 flex-col bg-[#14213d] text-white transition-transform lg:relative ${menu ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}
       >
-        <div className="flex justify-between border-b border-white/10 px-5 py-5">
-          <div className="min-w-0">
-            <img src="/sistema-financeiro/fincore-logo-transparent.png" alt="Fincore" className="h-10 w-32 object-contain object-left brightness-0 invert" />
-            <p className="mt-1 text-[11px] text-blue-200/70">Gestão financeira</p>
+        <div className="flex items-center justify-between border-b border-white/10 px-4 py-6">
+          <div className="min-w-0 flex-1 text-center">
+            <img src="/sistema-financeiro/fincore-logo-transparent.png" alt="Fincore" className="mx-auto h-14 w-40 object-contain brightness-0 invert" />
+            <p className="mt-1.5 text-xs font-medium text-blue-200/70">Gestão financeira</p>
           </div>
           <button className="lg:hidden" onClick={() => setMenu(false)}>
             <X />
