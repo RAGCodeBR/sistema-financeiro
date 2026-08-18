@@ -1471,9 +1471,10 @@ function App() {
       setMonth((v) => new Date(v.getFullYear(), v.getMonth() + n, 1));
   const save = async (data: Omit<Entry, "id">, scope: "one" | "series") => {
       if (editing) {
+        const isWholeSeries = scope === "series" && Boolean(editing.seriesId);
         const updated = entries.map((x) =>
             (
-              scope === "series" && editing.seriesId
+              isWholeSeries
                 ? x.seriesId === editing.seriesId
                 : x.id === editing.id
             )
@@ -1482,12 +1483,16 @@ function App() {
                   ...data,
                   id: x.id,
                   seriesId: x.seriesId,
+                  // The form date belongs to the occurrence being edited. On a
+                  // whole-series update, every occurrence must retain its own
+                  // due date; only its shared financial details change.
+                  date: isWholeSeries ? x.date : data.date,
                   installment: x.installment,
                 }
               : x,
         );
         const changed = updated.filter((x) =>
-          scope === "series" && editing.seriesId
+          isWholeSeries
             ? x.seriesId === editing.seriesId
             : x.id === editing.id,
         );
