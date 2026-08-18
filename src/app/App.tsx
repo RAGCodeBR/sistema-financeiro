@@ -1349,10 +1349,12 @@ function Reports({
   entries,
   accounts,
   allowedUnits,
+  categories,
 }: {
   entries: Entry[];
   accounts: Account[];
   allowedUnits: typeof units;
+  categories: Category[];
 }) {
   const today = new Date();
   const currentMonthStart = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`;
@@ -1406,26 +1408,25 @@ function Reports({
         return result;
       }, {}),
   ).sort((a, b) => b[1] - a[1]);
-  const colors = [
-    "#ef4444",
-    "#f97316",
-    "#eab308",
-    "#8b5cf6",
-    "#ec4899",
-    "#64748b",
-  ];
-  const categoryPie = (rows: [string, number][]) => {
+  const categoryColor = (entryKind: Kind, categoryName: string) =>
+    categories.find(
+      (item) =>
+        item.kind === entryKind &&
+        item.name === categoryName &&
+        (unit === "Todos" || item.unit === unit),
+    )?.color ?? (entryKind === "receita" ? "#10b981" : "#ef4444");
+  const categoryPie = (rows: [string, number][], entryKind: Kind) => {
     const total = rows.reduce((sum, [, value]) => sum + value, 0);
     if (!total) return "conic-gradient(#e2e8f0 0 100%)";
     let cursor = 0;
-    return `conic-gradient(${rows.map(([, value], index) => {
+    return `conic-gradient(${rows.map(([name, value]) => {
       const start = cursor;
       cursor += (value / total) * 100;
-      return `${colors[index % colors.length]} ${start}% ${cursor}%`;
+      return `${categoryColor(entryKind, name)} ${start}% ${cursor}%`;
     }).join(",")})`;
   };
-  const pie = categoryPie(expenseCategories);
-  const incomePie = categoryPie(incomeCategories);
+  const pie = categoryPie(expenseCategories, "despesa");
+  const incomePie = categoryPie(incomeCategories, "receita");
   const months = Array.from(
     { length: 6 },
     (_, index) =>
@@ -1646,14 +1647,14 @@ function Reports({
               style={{ background: pie }}
             />
             <div className="min-w-0 space-y-2">
-              {expenseCategories.slice(0, 5).map(([label, value], index) => (
+              {expenseCategories.slice(0, 5).map(([label, value]) => (
                 <p
                   key={label}
                   className="flex justify-between gap-3 text-xs font-bold"
                 >
                   <span
                     className="truncate"
-                    style={{ color: colors[index % colors.length] }}
+                    style={{ color: categoryColor("despesa", label) }}
                   >
                     {label}
                   </span>
@@ -1674,9 +1675,9 @@ function Reports({
         <div className="mt-5 flex items-center gap-5">
           <div className="h-36 w-36 shrink-0 rounded-full" style={{ background: incomePie }} />
           <div className="min-w-0 space-y-2">
-            {incomeCategories.slice(0, 5).map(([label, value], index) => (
+            {incomeCategories.slice(0, 5).map(([label, value]) => (
               <p key={label} className="flex justify-between gap-3 text-xs font-bold">
-                <span className="truncate" style={{ color: colors[index % colors.length] }}>{label}</span>
+                <span className="truncate" style={{ color: categoryColor("receita", label) }}>{label}</span>
                 <span>{fmt(value)}</span>
               </p>
             ))}
@@ -2674,6 +2675,7 @@ function App() {
               )}
               accounts={accounts}
               allowedUnits={allowedUnits}
+              categories={categories}
             />
           ) : screen === "usuarios" ? (
             <UsersAdmin
