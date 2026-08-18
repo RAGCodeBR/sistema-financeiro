@@ -632,7 +632,7 @@ function EntryForm({
           category,
           description,
           beneficiary,
-          pix,
+          pix: kind === "despesa" ? pix : "",
           notes,
           amount: v,
           date,
@@ -731,7 +731,7 @@ function EntryForm({
               className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal"
             />
           </label>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className={`grid gap-4 ${kind === "despesa" ? "sm:grid-cols-2" : "max-w-sm"}`}>
             <label className="text-xs font-bold">
               {kind === "despesa" ? "Fornecedor / favorecido (opcional)" : "Cliente / pagador (opcional)"}
               <input
@@ -741,14 +741,16 @@ function EntryForm({
                 className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal"
               />
             </label>
-            <label className="text-xs font-bold">
-              {kind === "despesa" ? "Chave PIX ou dados de pagamento" : "Chave PIX ou dados de recebimento"}
-              <input
-                value={pix}
-                onChange={(e) => setPix(e.target.value)}
-                className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal"
-              />
-            </label>
+            {kind === "despesa" && (
+              <label className="text-xs font-bold">
+                Chave PIX ou dados de pagamento
+                <input
+                  value={pix}
+                  onChange={(e) => setPix(e.target.value)}
+                  className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal"
+                />
+              </label>
+            )}
           </div>
           <label className="block text-xs font-bold">
             Observacoes
