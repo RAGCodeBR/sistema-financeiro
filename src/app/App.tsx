@@ -966,10 +966,19 @@ function Entries({
                   {x.unit} · {x.category} · {x.account} ·{" "}
                   {new Date(`${x.date}T12:00:00`).toLocaleDateString("pt-BR")}
                 </p>
-                {x.pix && (
-                  <p className="mt-1 truncate text-xs font-bold text-blue-700">
-                    Chave Pix: {x.pix}
-                  </p>
+                {(x.pix || x.notes) && (
+                  <div className="mt-1 space-y-0.5 text-xs">
+                    {x.pix && (
+                      <p className="truncate font-bold text-blue-700">
+                        Chave PIX: {x.pix}
+                      </p>
+                    )}
+                    {x.notes && (
+                      <p className="truncate text-gray-500">
+                        Observações: {x.notes}
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
               <div className="text-right">
@@ -1627,10 +1636,12 @@ function App() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <div className="hidden items-center gap-2 sm:flex">
-              <button onClick={() => open("despesa")} className="rounded-lg bg-red-50 px-3 py-2 text-xs font-extrabold text-red-600 hover:bg-red-100">− Despesa</button>
-              <button onClick={() => open("receita")} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-extrabold text-white hover:bg-emerald-700">+ Receita</button>
-            </div>
+            {screen !== "lancamentos" && (
+              <div className="hidden items-center gap-2 sm:flex">
+                <button onClick={() => open("despesa")} className="rounded-lg bg-red-50 px-3 py-2 text-xs font-extrabold text-red-600 hover:bg-red-100">− Despesa</button>
+                <button onClick={() => open("receita")} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-extrabold text-white hover:bg-emerald-700">+ Receita</button>
+              </div>
+            )}
             <div className="relative">
               <Bell className="m-2 h-5 w-5 text-gray-400" />
               {pending.length > 0 && (
