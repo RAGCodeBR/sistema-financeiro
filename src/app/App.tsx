@@ -1,5 +1,10 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
-import { readAuthenticatedRows, supabase, supabasePublishableKey, supabaseUrl } from "../lib/supabase";
+import {
+  readAuthenticatedRows,
+  supabase,
+  supabasePublishableKey,
+  supabaseUrl,
+} from "../lib/supabase";
 import {
   deleteRemoteCategory,
   deleteRemoteEntries,
@@ -94,7 +99,9 @@ const allowedUnitValues = units.map((unit) => unit.name);
 const profileAccess = (values: string[] | null | undefined) => {
   const raw = values || [];
   return {
-    units: raw.filter((value): value is Unit => allowedUnitValues.includes(value as Unit)),
+    units: raw.filter((value): value is Unit =>
+      allowedUnitValues.includes(value as Unit),
+    ),
     canViewReports: raw.includes(reportsAccessFlag),
   };
 };
@@ -170,7 +177,10 @@ const entryScheduleLabel = (entry: Entry) =>
       : "Lançamento único";
 const recurringOccurrenceId = (seriesId: string, date: string) => {
   const source = `${seriesId}:${date}`;
-  let a = 0x811c9dc5, b = 0x9e3779b9, c = 0x85ebca6b, d = 0xc2b2ae35;
+  let a = 0x811c9dc5,
+    b = 0x9e3779b9,
+    c = 0x85ebca6b,
+    d = 0xc2b2ae35;
   for (let i = 0; i < source.length; i += 1) {
     const code = source.charCodeAt(i);
     a = Math.imul(a ^ code, 0x01000193);
@@ -208,7 +218,9 @@ function nextRecurringEntries(entries: Entry[]) {
     });
 
   series.forEach((occurrences) => {
-    const last = [...occurrences].sort((a, b) => a.date.localeCompare(b.date)).at(-1);
+    const last = [...occurrences]
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .at(-1);
     if (!last) return;
     const nextDate = new Date(`${last.date}T12:00:00`);
     nextDate.setMonth(nextDate.getMonth() + 1);
@@ -217,7 +229,10 @@ function nextRecurringEntries(entries: Entry[]) {
         ...last,
         // Deterministic id makes this operation safe if Master and an operator
         // open the same centre at the same moment: both upsert the same month.
-        id: recurringOccurrenceId(last.seriesId!, nextDate.toISOString().slice(0, 10)),
+        id: recurringOccurrenceId(
+          last.seriesId!,
+          nextDate.toISOString().slice(0, 10),
+        ),
         date: nextDate.toISOString().slice(0, 10),
         status: "previsto",
         installment: undefined,
@@ -334,7 +349,10 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
     e.preventDefault();
     setBusy(true);
     setError("");
-    const { data, error: authError } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error: authError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
     if (authError || !data.user) {
       setError(
         authError?.message.toLowerCase().includes("email not confirmed")
@@ -351,7 +369,9 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
       .single();
     if (profileError || !profile) {
       await supabase.auth.signOut();
-      setError("Seu perfil de acesso não está configurado. Fale com o administrador.");
+      setError(
+        "Seu perfil de acesso não está configurado. Fale com o administrador.",
+      );
       setBusy(false);
       return;
     }
@@ -373,17 +393,32 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
         <section className="relative flex flex-col justify-between overflow-hidden bg-[#14213d] p-9 text-white sm:p-14">
           <div className="absolute -right-24 -top-24 h-80 w-80 rounded-full bg-blue-500/25 blur-3xl" />
           <div className="absolute -bottom-24 -left-24 h-80 w-80 rounded-full bg-indigo-500/20 blur-3xl" />
-          <p className="relative text-xl font-extrabold tracking-tight">fincore</p>
+          <p className="relative text-xl font-extrabold tracking-tight">
+            fincore
+          </p>
           <div className="relative max-w-xl py-12">
-            <p className="mb-5 text-xs font-extrabold tracking-[.2em] text-blue-200">GESTÃO FINANCEIRA</p>
-            <h1 className="text-5xl font-extrabold leading-[1.04] sm:text-6xl">Clareza para decidir. Controle para crescer.</h1>
-            <p className="mt-7 max-w-lg text-lg leading-relaxed text-blue-100">Organize receitas, despesas, contas e operações com uma visão financeira construída para o seu dia a dia.</p>
+            <p className="mb-5 text-xs font-extrabold tracking-[.2em] text-blue-200">
+              GESTÃO FINANCEIRA
+            </p>
+            <h1 className="text-5xl font-extrabold leading-[1.04] sm:text-6xl">
+              Clareza para decidir. Controle para crescer.
+            </h1>
+            <p className="mt-7 max-w-lg text-lg leading-relaxed text-blue-100">
+              Organize receitas, despesas, contas e operações com uma visão
+              financeira construída para o seu dia a dia.
+            </p>
           </div>
-          <p className="relative text-sm text-blue-200">fincore · gestão que acompanha suas decisões</p>
+          <p className="relative text-sm text-blue-200">
+            fincore · gestão que acompanha suas decisões
+          </p>
         </section>
         <section className="flex items-center justify-center bg-[#f8fafc] p-8 sm:p-14">
           <form onSubmit={submit} className="w-full max-w-md">
-            <img src="/sistema-financeiro/fincore-logo-transparent.png" alt="Fincore" className="mb-12 w-64 max-w-full" />
+            <img
+              src="/sistema-financeiro/fincore-logo-transparent.png"
+              alt="Fincore"
+              className="mb-12 w-64 max-w-full"
+            />
             <p className="text-xs font-extrabold tracking-widest text-blue-700">
               BEM-VINDO
             </p>
@@ -413,10 +448,15 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
             {error && (
               <p className="mt-3 text-sm font-bold text-red-600">{error}</p>
             )}
-            <button disabled={busy} className="mt-6 w-full rounded-xl bg-blue-700 py-3.5 text-sm font-bold text-white shadow-lg shadow-blue-700/20 disabled:cursor-wait disabled:opacity-70">
+            <button
+              disabled={busy}
+              className="mt-6 w-full rounded-xl bg-blue-700 py-3.5 text-sm font-bold text-white shadow-lg shadow-blue-700/20 disabled:cursor-wait disabled:opacity-70"
+            >
               {busy ? "Entrando..." : "Entrar no Fincore"}
             </button>
-            <p className="mt-6 text-center text-xs text-gray-400">Acesso protegido e gerenciado pelo administrador.</p>
+            <p className="mt-6 text-center text-xs text-gray-400">
+              Acesso protegido e gerenciado pelo administrador.
+            </p>
           </form>
         </section>
       </div>
@@ -470,7 +510,11 @@ function NewCategory({
               });
               close();
             } catch (error) {
-              setSaveError(error instanceof Error ? error.message : "Não foi possível salvar no banco.");
+              setSaveError(
+                error instanceof Error
+                  ? error.message
+                  : "Não foi possível salvar no banco.",
+              );
             } finally {
               setSaving(false);
             }
@@ -569,10 +613,21 @@ function NewCategory({
           >
             Cancelar
           </button>
-          <button disabled={saving} className="flex-1 rounded-xl bg-blue-700 py-2.5 text-sm font-bold text-white disabled:opacity-60">
-            {saving ? "Salvando no banco..." : category ? "Salvar alteracoes" : "Criar categoria"}
+          <button
+            disabled={saving}
+            className="flex-1 rounded-xl bg-blue-700 py-2.5 text-sm font-bold text-white disabled:opacity-60"
+          >
+            {saving
+              ? "Salvando no banco..."
+              : category
+                ? "Salvar alteracoes"
+                : "Criar categoria"}
           </button>
-          {saveError && <p className="absolute -top-5 left-6 text-xs font-bold text-red-600">{saveError}</p>}
+          {saveError && (
+            <p className="absolute -top-5 left-6 text-xs font-bold text-red-600">
+              {saveError}
+            </p>
+          )}
         </footer>
       </form>
     </div>
@@ -651,7 +706,9 @@ function EntryForm({
       close();
     } catch (error) {
       setSaveError(
-        error instanceof Error ? error.message : "Não foi possível salvar no banco.",
+        error instanceof Error
+          ? error.message
+          : "Não foi possível salvar no banco.",
       );
     } finally {
       setSaving(false);
@@ -737,13 +794,21 @@ function EntryForm({
               className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal"
             />
           </label>
-          <div className={`grid gap-4 ${kind === "despesa" ? "sm:grid-cols-2" : "max-w-sm"}`}>
+          <div
+            className={`grid gap-4 ${kind === "despesa" ? "sm:grid-cols-2" : "max-w-sm"}`}
+          >
             <label className="text-xs font-bold">
-              {kind === "despesa" ? "Fornecedor / favorecido (opcional)" : "Cliente / pagador (opcional)"}
+              {kind === "despesa"
+                ? "Fornecedor / favorecido (opcional)"
+                : "Cliente / pagador (opcional)"}
               <input
                 value={beneficiary}
                 onChange={(e) => setBeneficiary(e.target.value)}
-                placeholder={kind === "despesa" ? "Quem receberá este pagamento" : "Quem fez este pagamento"}
+                placeholder={
+                  kind === "despesa"
+                    ? "Quem receberá este pagamento"
+                    : "Quem fez este pagamento"
+                }
                 className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal"
               />
             </label>
@@ -868,16 +933,41 @@ function EntryForm({
           >
             Cancelar
           </button>
-          <button disabled={saving} className="flex-1 rounded-xl bg-blue-700 py-2.5 text-sm font-bold text-white disabled:opacity-60">
+          <button
+            disabled={saving}
+            className="flex-1 rounded-xl bg-blue-700 py-2.5 text-sm font-bold text-white disabled:opacity-60"
+          >
             {saving ? "Salvando no banco..." : "Salvar"}
           </button>
-          {saveError && <p className="absolute -top-5 left-6 text-xs font-bold text-red-600">{saveError}</p>}
+          {saveError && (
+            <p className="absolute -top-5 left-6 text-xs font-bold text-red-600">
+              {saveError}
+            </p>
+          )}
         </footer>
       </form>
     </div>
   );
 }
-function UsersAdmin({ users, reload, createUser, resetPassword, toggleReports }: { users: User[]; reload: () => Promise<void>; createUser: (data: { name: string; email: string; password: string; units: Unit[]; canViewReports: boolean }) => Promise<void>; resetPassword: (user: User) => Promise<void>; toggleReports: (user: User) => Promise<void> }) {
+function UsersAdmin({
+  users,
+  reload,
+  createUser,
+  resetPassword,
+  toggleReports,
+}: {
+  users: User[];
+  reload: () => Promise<void>;
+  createUser: (data: {
+    name: string;
+    email: string;
+    password: string;
+    units: Unit[];
+    canViewReports: boolean;
+  }) => Promise<void>;
+  resetPassword: (user: User) => Promise<void>;
+  toggleReports: (user: User) => Promise<void>;
+}) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -886,7 +976,12 @@ function UsersAdmin({ users, reload, createUser, resetPassword, toggleReports }:
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const toggleUnit = (unit: Unit) => setSelectedUnits((current) => current.includes(unit) ? current.filter((item) => item !== unit) : [...current, unit]);
+  const toggleUnit = (unit: Unit) =>
+    setSelectedUnits((current) =>
+      current.includes(unit)
+        ? current.filter((item) => item !== unit)
+        : [...current, unit],
+    );
   const recover = async (user: User) => {
     setError("");
     setMessage("");
@@ -894,7 +989,11 @@ function UsersAdmin({ users, reload, createUser, resetPassword, toggleReports }:
       await resetPassword(user);
       setMessage(`Senha de ${user.name} redefinida com sucesso.`);
     } catch (recoverError) {
-      setError(recoverError instanceof Error ? recoverError.message : "Não foi possível enviar o link de redefinição.");
+      setError(
+        recoverError instanceof Error
+          ? recoverError.message
+          : "Não foi possível enviar o link de redefinição.",
+      );
     }
   };
   const submit = async (event: FormEvent) => {
@@ -903,9 +1002,19 @@ function UsersAdmin({ users, reload, createUser, resetPassword, toggleReports }:
     setError("");
     setMessage("");
     try {
-      await createUser({ name, email, password, units: selectedUnits, canViewReports });
+      await createUser({
+        name,
+        email,
+        password,
+        units: selectedUnits,
+        canViewReports,
+      });
     } catch (createError) {
-      setError(createError instanceof Error ? createError.message : "Não foi possível criar o usuário.");
+      setError(
+        createError instanceof Error
+          ? createError.message
+          : "Não foi possível criar o usuário.",
+      );
       setBusy(false);
       return;
     }
@@ -914,11 +1023,172 @@ function UsersAdmin({ users, reload, createUser, resetPassword, toggleReports }:
     setPassword("");
     setSelectedUnits([]);
     setCanViewReports(false);
-    setMessage("Usuário criado. Ele já pode acessar somente os centros definidos.");
+    setMessage(
+      "Usuário criado. Ele já pode acessar somente os centros definidos.",
+    );
     await reload();
     setBusy(false);
   };
-  return <section className="grid gap-5 xl:grid-cols-[.9fr_1.1fr]"><form onSubmit={submit} className="rounded-2xl bg-white p-5 shadow-sm"><div className="mb-5"><h2 className="font-extrabold text-slate-900">Novo usuário</h2><p className="text-xs text-gray-400">Crie um acesso e determine os centros de custo visíveis.</p></div><div className="space-y-4"><label className="block text-xs font-bold text-gray-600">Nome<input required value={name} onChange={(event) => setName(event.target.value)} className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal" placeholder="Ex.: Bete Silva" /></label><label className="block text-xs font-bold text-gray-600">E-mail<input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal" placeholder="nome@empresa.com" /></label><label className="block text-xs font-bold text-gray-600">Senha inicial<input required minLength={6} type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal" placeholder="Mínimo de 6 caracteres" /></label><fieldset><legend className="text-xs font-bold text-gray-600">Centros de custo permitidos</legend><div className="mt-2 grid grid-cols-2 gap-2">{units.map((unit) => <label key={unit.name} className={`flex cursor-pointer items-center gap-2 rounded-xl border p-3 text-xs font-bold ${selectedUnits.includes(unit.name) ? "border-blue-300 bg-blue-50 text-blue-800" : "bg-white text-gray-600"}`}><input type="checkbox" checked={selectedUnits.includes(unit.name)} onChange={() => toggleUnit(unit.name)} />{unit.name}</label>)}</div></fieldset><label className={`flex cursor-pointer items-center gap-2 rounded-xl border p-3 text-xs font-bold ${canViewReports ? "border-violet-300 bg-violet-50 text-violet-800" : "bg-white text-gray-600"}`}><input type="checkbox" checked={canViewReports} onChange={(event) => setCanViewReports(event.target.checked)} />Permitir acesso à aba Relatórios</label>{error && <p className="rounded-xl bg-red-50 p-3 text-xs font-bold text-red-600">{error}</p>}{message && <p className="rounded-xl bg-emerald-50 p-3 text-xs font-bold text-emerald-700">{message}</p>}<button disabled={busy} className="w-full rounded-xl bg-blue-700 py-3 text-sm font-bold text-white disabled:opacity-60">{busy ? "Criando..." : "Criar acesso"}</button></div></form><section className="rounded-2xl bg-white p-5 shadow-sm"><div className="mb-5"><h2 className="font-extrabold text-slate-900">Usuários ativos</h2><p className="text-xs text-gray-400">O Master enxerga tudo; operadores enxergam apenas os centros liberados.</p></div><div className="grid gap-3">{users.map((user) => <div key={user.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4"><div><p className="font-bold text-slate-900">{user.name}</p><p className="text-xs text-gray-400">{user.email || "E-mail não informado"} · {user.role === "master" ? "Master" : "Operador"}</p></div><div className="flex flex-wrap items-center gap-2">{user.role === "master" ? <span className="rounded-full bg-blue-700 px-2 py-1 text-xs font-bold text-white">Todos os centros</span> : <>{user.units.map((unit) => <span key={unit} className="rounded-full bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700">{unit}</span>)}{user.canViewReports && <span className="rounded-full bg-violet-50 px-2 py-1 text-xs font-bold text-violet-700">Relatórios</span>}<button onClick={() => void toggleReports(user)} className="rounded-lg border border-violet-200 px-2.5 py-1.5 text-xs font-bold text-violet-700">{user.canViewReports ? "Remover relatórios" : "Autorizar relatórios"}</button><button onClick={() => void recover(user)} className="rounded-lg border border-amber-200 px-2.5 py-1.5 text-xs font-bold text-amber-700">Redefinir senha</button></>}</div></div>)}{!users.length && <p className="py-8 text-center text-sm text-gray-400">Carregando usuários…</p>}</div></section></section>;
+  return (
+    <section className="grid gap-5 xl:grid-cols-[.9fr_1.1fr]">
+      <form onSubmit={submit} className="rounded-2xl bg-white p-5 shadow-sm">
+        <div className="mb-5">
+          <h2 className="font-extrabold text-slate-900">Novo usuário</h2>
+          <p className="text-xs text-gray-400">
+            Crie um acesso e determine os centros de custo visíveis.
+          </p>
+        </div>
+        <div className="space-y-4">
+          <label className="block text-xs font-bold text-gray-600">
+            Nome
+            <input
+              required
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal"
+              placeholder="Ex.: Bete Silva"
+            />
+          </label>
+          <label className="block text-xs font-bold text-gray-600">
+            E-mail
+            <input
+              required
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal"
+              placeholder="nome@empresa.com"
+            />
+          </label>
+          <label className="block text-xs font-bold text-gray-600">
+            Senha inicial
+            <input
+              required
+              minLength={6}
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal"
+              placeholder="Mínimo de 6 caracteres"
+            />
+          </label>
+          <fieldset>
+            <legend className="text-xs font-bold text-gray-600">
+              Centros de custo permitidos
+            </legend>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              {units.map((unit) => (
+                <label
+                  key={unit.name}
+                  className={`flex cursor-pointer items-center gap-2 rounded-xl border p-3 text-xs font-bold ${selectedUnits.includes(unit.name) ? "border-blue-300 bg-blue-50 text-blue-800" : "bg-white text-gray-600"}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedUnits.includes(unit.name)}
+                    onChange={() => toggleUnit(unit.name)}
+                  />
+                  {unit.name}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <label
+            className={`flex cursor-pointer items-center gap-2 rounded-xl border p-3 text-xs font-bold ${canViewReports ? "border-violet-300 bg-violet-50 text-violet-800" : "bg-white text-gray-600"}`}
+          >
+            <input
+              type="checkbox"
+              checked={canViewReports}
+              onChange={(event) => setCanViewReports(event.target.checked)}
+            />
+            Permitir acesso à aba Relatórios
+          </label>
+          {error && (
+            <p className="rounded-xl bg-red-50 p-3 text-xs font-bold text-red-600">
+              {error}
+            </p>
+          )}
+          {message && (
+            <p className="rounded-xl bg-emerald-50 p-3 text-xs font-bold text-emerald-700">
+              {message}
+            </p>
+          )}
+          <button
+            disabled={busy}
+            className="w-full rounded-xl bg-blue-700 py-3 text-sm font-bold text-white disabled:opacity-60"
+          >
+            {busy ? "Criando..." : "Criar acesso"}
+          </button>
+        </div>
+      </form>
+      <section className="rounded-2xl bg-white p-5 shadow-sm">
+        <div className="mb-5">
+          <h2 className="font-extrabold text-slate-900">Usuários ativos</h2>
+          <p className="text-xs text-gray-400">
+            O Master enxerga tudo; operadores enxergam apenas os centros
+            liberados.
+          </p>
+        </div>
+        <div className="grid gap-3">
+          {users.map((user) => (
+            <div
+              key={user.id}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4"
+            >
+              <div>
+                <p className="font-bold text-slate-900">{user.name}</p>
+                <p className="text-xs text-gray-400">
+                  {user.email || "E-mail não informado"} ·{" "}
+                  {user.role === "master" ? "Master" : "Operador"}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {user.role === "master" ? (
+                  <span className="rounded-full bg-blue-700 px-2 py-1 text-xs font-bold text-white">
+                    Todos os centros
+                  </span>
+                ) : (
+                  <>
+                    {user.units.map((unit) => (
+                      <span
+                        key={unit}
+                        className="rounded-full bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700"
+                      >
+                        {unit}
+                      </span>
+                    ))}
+                    {user.canViewReports && (
+                      <span className="rounded-full bg-violet-50 px-2 py-1 text-xs font-bold text-violet-700">
+                        Relatórios
+                      </span>
+                    )}
+                    <button
+                      onClick={() => void toggleReports(user)}
+                      className="rounded-lg border border-violet-200 px-2.5 py-1.5 text-xs font-bold text-violet-700"
+                    >
+                      {user.canViewReports
+                        ? "Remover relatórios"
+                        : "Autorizar relatórios"}
+                    </button>
+                    <button
+                      onClick={() => void recover(user)}
+                      className="rounded-lg border border-amber-200 px-2.5 py-1.5 text-xs font-bold text-amber-700"
+                    >
+                      Redefinir senha
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
+          {!users.length && (
+            <p className="py-8 text-center text-sm text-gray-400">
+              Carregando usuários…
+            </p>
+          )}
+        </div>
+      </section>
+    </section>
+  );
 }
 
 function Entries({
@@ -1075,75 +1345,412 @@ function Breakdown({
     </section>
   );
 }
-function Reports({ entries, accounts, allowedUnits }: { entries: Entry[]; accounts: Account[]; allowedUnits: typeof units }) {
+function Reports({
+  entries,
+  accounts,
+  allowedUnits,
+}: {
+  entries: Entry[];
+  accounts: Account[];
+  allowedUnits: typeof units;
+}) {
   const today = new Date();
-  const yearStart = `${today.getFullYear()}-01-01`;
-  const todayIso = today.toISOString().slice(0, 10);
-  const [from, setFrom] = useState(yearStart);
-  const [to, setTo] = useState(todayIso);
+  const currentMonthStart = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`;
+  const currentMonthEnd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()).padStart(2, "0")}`;
+  const [from, setFrom] = useState(currentMonthStart);
+  const [to, setTo] = useState(currentMonthEnd);
   const [unit, setUnit] = useState<Unit | "Todos">("Todos");
   const [account, setAccount] = useState("Todos");
   const [category, setCategory] = useState("Todos");
   const [kind, setKind] = useState<Kind | "todos">("todos");
-  const filtered = entries.filter((entry) =>
-    entry.date >= from && entry.date <= to &&
-    (unit === "Todos" || entry.unit === unit) &&
-    (account === "Todos" || entry.account === account) &&
-    (category === "Todos" || entry.category === category) &&
-    (kind === "todos" || entry.kind === kind),
+  const filtered = entries.filter(
+    (entry) =>
+      entry.date >= from &&
+      entry.date <= to &&
+      (unit === "Todos" || entry.unit === unit) &&
+      (account === "Todos" || entry.account === account) &&
+      (category === "Todos" || entry.category === category) &&
+      (kind === "todos" || entry.kind === kind),
   );
-  const total = (entryKind: Kind, status?: Entry["status"]) => filtered
-    .filter((entry) => entry.kind === entryKind && (!status || entry.status === status))
-    .reduce((sum, entry) => sum + entry.amount, 0);
+  const total = (entryKind: Kind, status?: Entry["status"]) =>
+    filtered
+      .filter(
+        (entry) =>
+          entry.kind === entryKind && (!status || entry.status === status),
+      )
+      .reduce((sum, entry) => sum + entry.amount, 0);
   const income = total("receita");
   const expense = total("despesa");
   const pendingPay = total("despesa", "previsto");
   const pendingReceive = total("receita", "previsto");
-  const byCategory = Object.entries(filtered.reduce<Record<string, number>>((result, entry) => {
-    const label = `${entry.kind === "receita" ? "Receita" : "Despesa"}: ${entry.category}`;
-    result[label] = (result[label] || 0) + entry.amount;
-    return result;
-  }, {})).sort((a, b) => b[1] - a[1]);
-  const expenseCategories = Object.entries(filtered.filter((entry) => entry.kind === "despesa").reduce<Record<string, number>>((result, entry) => {
-    result[entry.category] = (result[entry.category] || 0) + entry.amount;
-    return result;
-  }, {})).sort((a, b) => b[1] - a[1]);
-  const expenseTotal = expenseCategories.reduce((sum, [, value]) => sum + value, 0);
-  const colors = ["#ef4444", "#f97316", "#eab308", "#8b5cf6", "#ec4899", "#64748b"];
-  let cursor = 0;
-  const pie = expenseCategories.length ? `conic-gradient(${expenseCategories.map(([, value], index) => {
-    const start = cursor;
-    cursor += (value / expenseTotal) * 100;
-    return `${colors[index % colors.length]} ${start}% ${cursor}%`;
-  }).join(",")})` : "conic-gradient(#e2e8f0 0 100%)";
-  const months = Array.from({ length: 6 }, (_, index) => new Date(today.getFullYear(), today.getMonth() - 5 + index, 1));
+  const byCategory = Object.entries(
+    filtered.reduce<Record<string, number>>((result, entry) => {
+      const label = `${entry.kind === "receita" ? "Receita" : "Despesa"}: ${entry.category}`;
+      result[label] = (result[label] || 0) + entry.amount;
+      return result;
+    }, {}),
+  ).sort((a, b) => b[1] - a[1]);
+  const expenseCategories = Object.entries(
+    filtered
+      .filter((entry) => entry.kind === "despesa")
+      .reduce<Record<string, number>>((result, entry) => {
+        result[entry.category] = (result[entry.category] || 0) + entry.amount;
+        return result;
+      }, {}),
+  ).sort((a, b) => b[1] - a[1]);
+  const incomeCategories = Object.entries(
+    filtered
+      .filter((entry) => entry.kind === "receita")
+      .reduce<Record<string, number>>((result, entry) => {
+        result[entry.category] = (result[entry.category] || 0) + entry.amount;
+        return result;
+      }, {}),
+  ).sort((a, b) => b[1] - a[1]);
+  const colors = [
+    "#ef4444",
+    "#f97316",
+    "#eab308",
+    "#8b5cf6",
+    "#ec4899",
+    "#64748b",
+  ];
+  const categoryPie = (rows: [string, number][]) => {
+    const total = rows.reduce((sum, [, value]) => sum + value, 0);
+    if (!total) return "conic-gradient(#e2e8f0 0 100%)";
+    let cursor = 0;
+    return `conic-gradient(${rows.map(([, value], index) => {
+      const start = cursor;
+      cursor += (value / total) * 100;
+      return `${colors[index % colors.length]} ${start}% ${cursor}%`;
+    }).join(",")})`;
+  };
+  const pie = categoryPie(expenseCategories);
+  const incomePie = categoryPie(incomeCategories);
+  const months = Array.from(
+    { length: 6 },
+    (_, index) =>
+      new Date(today.getFullYear(), today.getMonth() - 5 + index, 1),
+  );
   const monthly = months.map((date) => {
     const key = date.toISOString().slice(0, 7);
     const values = filtered.filter((entry) => entry.date.startsWith(key));
-    return { label: date.toLocaleDateString("pt-BR", { month: "short" }).replace(".", ""), income: values.filter((entry) => entry.kind === "receita").reduce((sum, entry) => sum + entry.amount, 0), expense: values.filter((entry) => entry.kind === "despesa").reduce((sum, entry) => sum + entry.amount, 0) };
+    return {
+      label: date
+        .toLocaleDateString("pt-BR", { month: "short" })
+        .replace(".", ""),
+      income: values
+        .filter((entry) => entry.kind === "receita")
+        .reduce((sum, entry) => sum + entry.amount, 0),
+      expense: values
+        .filter((entry) => entry.kind === "despesa")
+        .reduce((sum, entry) => sum + entry.amount, 0),
+    };
   });
-  const monthlyMax = Math.max(1, ...monthly.flatMap((item) => [item.income, item.expense]));
-  const beneficiaries = Object.entries(filtered.filter((entry) => entry.beneficiary.trim()).reduce<Record<string, number>>((result, entry) => {
-    const label = entry.beneficiary.trim();
-    result[label] = (result[label] || 0) + entry.amount;
-    return result;
-  }, {})).sort((a, b) => b[1] - a[1]).slice(0, 5);
-  const counterpartyTitle = kind === "despesa"
-    ? "Fornecedores / favorecidos"
-    : kind === "receita"
-      ? "Clientes / pagadores"
-      : "Contrapartes informadas";
-  const counterpartyEmpty = kind === "despesa"
-    ? "Nenhum fornecedor ou favorecido informado."
-    : kind === "receita"
-      ? "Nenhum cliente ou pagador informado."
-      : "Nenhuma contraparte informada.";
-  const accountRows = accounts.filter((item) => unit === "Todos" || item.unit === unit).map((item) => ({
-    name: item.name,
-    unit: item.unit,
-    balance: filtered.filter((entry) => entry.account === item.name && entry.status === "realizado").reduce((sum, entry) => sum + (entry.kind === "receita" ? entry.amount : -entry.amount), 0),
-  }));
-  return <section className="space-y-5"><div className="rounded-2xl bg-white p-5 shadow-sm"><div className="flex flex-wrap items-end gap-3"><label className="text-xs font-bold">De<input type="date" value={from} onChange={(event) => setFrom(event.target.value)} className="mt-1.5 block rounded-xl border bg-gray-50 p-2.5 text-sm font-normal" /></label><label className="text-xs font-bold">Até<input type="date" value={to} onChange={(event) => setTo(event.target.value)} className="mt-1.5 block rounded-xl border bg-gray-50 p-2.5 text-sm font-normal" /></label><label className="text-xs font-bold">Centro<select value={unit} onChange={(event) => { setUnit(event.target.value as Unit | "Todos"); setAccount("Todos"); setCategory("Todos"); }} className="mt-1.5 block rounded-xl border bg-gray-50 p-2.5 text-sm font-normal"><option>Todos</option>{allowedUnits.map((item) => <option key={item.name}>{item.name}</option>)}</select></label><label className="text-xs font-bold">Conta<select value={account} onChange={(event) => setAccount(event.target.value)} className="mt-1.5 block rounded-xl border bg-gray-50 p-2.5 text-sm font-normal"><option>Todos</option>{accounts.filter((item) => unit === "Todos" || item.unit === unit).map((item) => <option key={item.id}>{item.name}</option>)}</select></label><label className="text-xs font-bold">Categoria<select value={category} onChange={(event) => setCategory(event.target.value)} className="mt-1.5 block rounded-xl border bg-gray-50 p-2.5 text-sm font-normal"><option>Todos</option>{[...new Set(entries.filter((item) => unit === "Todos" || item.unit === unit).map((item) => item.category))].sort().map((item) => <option key={item}>{item}</option>)}</select></label><label className="text-xs font-bold">Tipo<select value={kind} onChange={(event) => setKind(event.target.value as Kind | "todos")} className="mt-1.5 block rounded-xl border bg-gray-50 p-2.5 text-sm font-normal"><option value="todos">Todos</option><option value="receita">Receitas</option><option value="despesa">Despesas</option></select></label></div></div><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[["Receitas", income, "text-emerald-600"], ["Despesas", expense, "text-red-600"], ["Resultado", income - expense, income - expense >= 0 ? "text-blue-700" : "text-red-600"], ["Previsão líquida", pendingReceive - pendingPay, "text-violet-700"]].map(([label, value, color]) => <article key={label as string} className="rounded-2xl bg-white p-5 shadow-sm"><p className="text-xs font-bold text-gray-400">{label}</p><p className={`mt-2 text-2xl font-extrabold ${color}`}>{fmt(value as number)}</p></article>)}</div><div className="grid gap-5 xl:grid-cols-[1.2fr_.8fr]"><section className="rounded-2xl bg-white p-5 shadow-sm"><h2 className="font-extrabold text-[#14213d]">Fluxo financeiro — últimos 6 meses</h2><div className="mt-7 flex h-56 items-end justify-between gap-3">{monthly.map((item) => <div key={item.label} className="flex h-full flex-1 flex-col justify-end"><div className="flex h-full items-end justify-center gap-1"><div title={`Receitas: ${fmt(item.income)}`} className="w-4 rounded-t bg-emerald-500" style={{ height: `${(item.income / monthlyMax) * 100}%` }} /><div title={`Despesas: ${fmt(item.expense)}`} className="w-4 rounded-t bg-red-500" style={{ height: `${(item.expense / monthlyMax) * 100}%` }} /></div><p className="mt-2 text-center text-[11px] font-bold text-gray-400">{item.label}</p></div>)}</div><div className="mt-3 flex gap-4 text-xs font-bold"><span className="text-emerald-600">■ Receitas</span><span className="text-red-600">■ Despesas</span></div></section><section className="rounded-2xl bg-white p-5 shadow-sm"><h2 className="font-extrabold text-[#14213d]">Despesas por categoria</h2><div className="mt-5 flex items-center gap-5"><div className="h-36 w-36 shrink-0 rounded-full" style={{ background: pie }} /><div className="min-w-0 space-y-2">{expenseCategories.slice(0, 5).map(([label, value], index) => <p key={label} className="flex justify-between gap-3 text-xs font-bold"><span className="truncate" style={{ color: colors[index % colors.length] }}>{label}</span><span>{fmt(value)}</span></p>)}{!expenseCategories.length && <p className="text-sm text-gray-400">Sem despesas no período.</p>}</div></div></section></div><div className="grid gap-5 xl:grid-cols-2"><section className="rounded-2xl bg-white p-5 shadow-sm"><h2 className="font-extrabold text-[#14213d]">Categorias que mais movimentam</h2><div className="mt-4 divide-y">{byCategory.slice(0, 8).map(([label, value]) => <div key={label} className="flex justify-between gap-4 py-3 text-sm"><span className="font-bold text-gray-700">{label}</span><span className="font-extrabold text-slate-900">{fmt(value)}</span></div>)}{!byCategory.length && <p className="py-5 text-sm text-gray-400">Sem dados para os filtros selecionados.</p>}</div></section><section className="rounded-2xl bg-white p-5 shadow-sm"><h2 className="font-extrabold text-[#14213d]">{counterpartyTitle}</h2><p className="mt-1 text-xs text-gray-400">Campo opcional nos lançamentos.</p><div className="mt-4 divide-y">{beneficiaries.map(([label, value]) => <div key={label} className="flex justify-between gap-4 py-3 text-sm"><span className="font-bold text-gray-700">{label}</span><span className="font-extrabold text-slate-900">{fmt(value)}</span></div>)}{!beneficiaries.length && <p className="py-5 text-sm text-gray-400">{counterpartyEmpty}</p>}</div></section></div><section className="rounded-2xl bg-white p-5 shadow-sm"><h2 className="font-extrabold text-[#14213d]">Saldos realizados por conta</h2><div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{accountRows.map((item) => <div key={item.name} className="rounded-xl border p-4"><p className="font-bold text-slate-800">{item.name}</p><p className="text-xs text-gray-400">{item.unit}</p><p className={`mt-3 text-lg font-extrabold ${item.balance >= 0 ? "text-blue-700" : "text-red-600"}`}>{fmt(item.balance)}</p></div>)}</div></section></section>;
+  const monthlyMax = Math.max(
+    1,
+    ...monthly.flatMap((item) => [item.income, item.expense]),
+  );
+  const beneficiaries = Object.entries(
+    filtered
+      .filter((entry) => entry.beneficiary.trim())
+      .reduce<Record<string, number>>((result, entry) => {
+        const label = entry.beneficiary.trim();
+        result[label] = (result[label] || 0) + entry.amount;
+        return result;
+      }, {}),
+  )
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+  const counterpartyTitle =
+    kind === "despesa"
+      ? "Fornecedores / favorecidos"
+      : kind === "receita"
+        ? "Clientes / pagadores"
+        : "Contrapartes informadas";
+  const counterpartyEmpty =
+    kind === "despesa"
+      ? "Nenhum fornecedor ou favorecido informado."
+      : kind === "receita"
+        ? "Nenhum cliente ou pagador informado."
+        : "Nenhuma contraparte informada.";
+  const accountRows = accounts
+    .filter((item) => unit === "Todos" || item.unit === unit)
+    .map((item) => ({
+      name: item.name,
+      unit: item.unit,
+      balance: filtered
+        .filter(
+          (entry) =>
+            entry.account === item.name && entry.status === "realizado",
+        )
+        .reduce(
+          (sum, entry) =>
+            sum + (entry.kind === "receita" ? entry.amount : -entry.amount),
+          0,
+        ),
+    }));
+  return (
+    <section className="space-y-5">
+      <div className="rounded-2xl bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="text-xs font-bold">
+            De
+            <input
+              type="date"
+              value={from}
+              onChange={(event) => setFrom(event.target.value)}
+              className="mt-1.5 block rounded-xl border bg-gray-50 p-2.5 text-sm font-normal"
+            />
+          </label>
+          <label className="text-xs font-bold">
+            Até
+            <input
+              type="date"
+              value={to}
+              onChange={(event) => setTo(event.target.value)}
+              className="mt-1.5 block rounded-xl border bg-gray-50 p-2.5 text-sm font-normal"
+            />
+          </label>
+          <label className="text-xs font-bold">
+            Centro
+            <select
+              value={unit}
+              onChange={(event) => {
+                setUnit(event.target.value as Unit | "Todos");
+                setAccount("Todos");
+                setCategory("Todos");
+              }}
+              className="mt-1.5 block rounded-xl border bg-gray-50 p-2.5 text-sm font-normal"
+            >
+              <option>Todos</option>
+              {allowedUnits.map((item) => (
+                <option key={item.name}>{item.name}</option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs font-bold">
+            Conta
+            <select
+              value={account}
+              onChange={(event) => setAccount(event.target.value)}
+              className="mt-1.5 block rounded-xl border bg-gray-50 p-2.5 text-sm font-normal"
+            >
+              <option>Todos</option>
+              {accounts
+                .filter((item) => unit === "Todos" || item.unit === unit)
+                .map((item) => (
+                  <option key={item.id}>{item.name}</option>
+                ))}
+            </select>
+          </label>
+          <label className="text-xs font-bold">
+            Categoria
+            <select
+              value={category}
+              onChange={(event) => setCategory(event.target.value)}
+              className="mt-1.5 block rounded-xl border bg-gray-50 p-2.5 text-sm font-normal"
+            >
+              <option>Todos</option>
+              {[
+                ...new Set(
+                  entries
+                    .filter((item) => unit === "Todos" || item.unit === unit)
+                    .map((item) => item.category),
+                ),
+              ]
+                .sort()
+                .map((item) => (
+                  <option key={item}>{item}</option>
+                ))}
+            </select>
+          </label>
+          <label className="text-xs font-bold">
+            Tipo
+            <select
+              value={kind}
+              onChange={(event) =>
+                setKind(event.target.value as Kind | "todos")
+              }
+              className="mt-1.5 block rounded-xl border bg-gray-50 p-2.5 text-sm font-normal"
+            >
+              <option value="todos">Todos</option>
+              <option value="receita">Receitas</option>
+              <option value="despesa">Despesas</option>
+            </select>
+          </label>
+        </div>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          ["Receitas", income, "text-emerald-600"],
+          ["Despesas", expense, "text-red-600"],
+          [
+            "Resultado",
+            income - expense,
+            income - expense >= 0 ? "text-blue-700" : "text-red-600",
+          ],
+          ["Previsão líquida", pendingReceive - pendingPay, "text-violet-700"],
+        ].map(([label, value, color]) => (
+          <article
+            key={label as string}
+            className="rounded-2xl bg-white p-5 shadow-sm"
+          >
+            <p className="text-xs font-bold text-gray-400">{label}</p>
+            <p className={`mt-2 text-2xl font-extrabold ${color}`}>
+              {fmt(value as number)}
+            </p>
+          </article>
+        ))}
+      </div>
+      <div className="grid gap-5 xl:grid-cols-[1.2fr_.8fr]">
+        <section className="rounded-2xl bg-white p-5 shadow-sm">
+          <h2 className="font-extrabold text-[#14213d]">
+            Fluxo financeiro — últimos 6 meses
+          </h2>
+          <div className="mt-7 flex h-56 items-end justify-between gap-3">
+            {monthly.map((item) => (
+              <div
+                key={item.label}
+                className="flex h-full flex-1 flex-col justify-end"
+              >
+                <div className="flex h-full items-end justify-center gap-1">
+                  <div
+                    title={`Receitas: ${fmt(item.income)}`}
+                    className="w-4 rounded-t bg-emerald-500"
+                    style={{ height: `${(item.income / monthlyMax) * 100}%` }}
+                  />
+                  <div
+                    title={`Despesas: ${fmt(item.expense)}`}
+                    className="w-4 rounded-t bg-red-500"
+                    style={{ height: `${(item.expense / monthlyMax) * 100}%` }}
+                  />
+                </div>
+                <p className="mt-2 text-center text-[11px] font-bold text-gray-400">
+                  {item.label}
+                </p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 flex gap-4 text-xs font-bold">
+            <span className="text-emerald-600">■ Receitas</span>
+            <span className="text-red-600">■ Despesas</span>
+          </div>
+        </section>
+        <section className="rounded-2xl bg-white p-5 shadow-sm">
+          <h2 className="font-extrabold text-[#14213d]">
+            Despesas por categoria
+          </h2>
+          <div className="mt-5 flex items-center gap-5">
+            <div
+              className="h-36 w-36 shrink-0 rounded-full"
+              style={{ background: pie }}
+            />
+            <div className="min-w-0 space-y-2">
+              {expenseCategories.slice(0, 5).map(([label, value], index) => (
+                <p
+                  key={label}
+                  className="flex justify-between gap-3 text-xs font-bold"
+                >
+                  <span
+                    className="truncate"
+                    style={{ color: colors[index % colors.length] }}
+                  >
+                    {label}
+                  </span>
+                  <span>{fmt(value)}</span>
+                </p>
+              ))}
+              {!expenseCategories.length && (
+                <p className="text-sm text-gray-400">
+                  Sem despesas no período.
+                </p>
+              )}
+            </div>
+          </div>
+        </section>
+      </div>
+      <section className="rounded-2xl bg-white p-5 shadow-sm">
+        <h2 className="font-extrabold text-[#14213d]">Receitas por categoria</h2>
+        <div className="mt-5 flex items-center gap-5">
+          <div className="h-36 w-36 shrink-0 rounded-full" style={{ background: incomePie }} />
+          <div className="min-w-0 space-y-2">
+            {incomeCategories.slice(0, 5).map(([label, value], index) => (
+              <p key={label} className="flex justify-between gap-3 text-xs font-bold">
+                <span className="truncate" style={{ color: colors[index % colors.length] }}>{label}</span>
+                <span>{fmt(value)}</span>
+              </p>
+            ))}
+            {!incomeCategories.length && <p className="text-sm text-gray-400">Sem receitas no período.</p>}
+          </div>
+        </div>
+      </section>
+      <div className="grid gap-5 xl:grid-cols-2">
+        <section className="rounded-2xl bg-white p-5 shadow-sm">
+          <h2 className="font-extrabold text-[#14213d]">
+            Categorias que mais movimentam
+          </h2>
+          <div className="mt-4 divide-y">
+            {byCategory.slice(0, 8).map(([label, value]) => (
+              <div
+                key={label}
+                className="flex justify-between gap-4 py-3 text-sm"
+              >
+                <span className="font-bold text-gray-700">{label}</span>
+                <span className="font-extrabold text-slate-900">
+                  {fmt(value)}
+                </span>
+              </div>
+            ))}
+            {!byCategory.length && (
+              <p className="py-5 text-sm text-gray-400">
+                Sem dados para os filtros selecionados.
+              </p>
+            )}
+          </div>
+        </section>
+        <section className="rounded-2xl bg-white p-5 shadow-sm">
+          <h2 className="font-extrabold text-[#14213d]">{counterpartyTitle}</h2>
+          <p className="mt-1 text-xs text-gray-400">
+            Campo opcional nos lançamentos.
+          </p>
+          <div className="mt-4 divide-y">
+            {beneficiaries.map(([label, value]) => (
+              <div
+                key={label}
+                className="flex justify-between gap-4 py-3 text-sm"
+              >
+                <span className="font-bold text-gray-700">{label}</span>
+                <span className="font-extrabold text-slate-900">
+                  {fmt(value)}
+                </span>
+              </div>
+            ))}
+            {!beneficiaries.length && (
+              <p className="py-5 text-sm text-gray-400">{counterpartyEmpty}</p>
+            )}
+          </div>
+        </section>
+      </div>
+      <section className="rounded-2xl bg-white p-5 shadow-sm">
+        <h2 className="font-extrabold text-[#14213d]">
+          Saldos realizados por conta
+        </h2>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {accountRows.map((item) => (
+            <div key={item.name} className="rounded-xl border p-4">
+              <p className="font-bold text-slate-800">{item.name}</p>
+              <p className="text-xs text-gray-400">{item.unit}</p>
+              <p
+                className={`mt-3 text-lg font-extrabold ${item.balance >= 0 ? "text-blue-700" : "text-red-600"}`}
+              >
+                {fmt(item.balance)}
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
+    </section>
+  );
 }
 function App() {
   const [screen, setScreen] = useState("dashboard"),
@@ -1164,7 +1771,11 @@ function App() {
     [entries, setEntries] = useState<Entry[]>([]),
     [categories, setCategories] = useState<Category[]>([]),
     [accounts, setAccounts] = useState<Account[]>(() =>
-      units.map((unit) => ({ id: unit.name, name: unit.name, unit: unit.name })),
+      units.map((unit) => ({
+        id: unit.name,
+        name: unit.name,
+        unit: unit.name,
+      })),
     ),
     [filter, setFilter] = useState<Unit | "Todos">("Todos"),
     [entryFilter, setEntryFilter] = useState<"todos" | "pagar" | "receber">(
@@ -1250,7 +1861,8 @@ function App() {
           data: { session },
           error: refreshError,
         } = await supabase.auth.refreshSession();
-        if (refreshError || !session) throw refreshError || new Error("Sessão expirada.");
+        if (refreshError || !session)
+          throw refreshError || new Error("Sessão expirada.");
         const [entryRows, categoryRows, accountRows] = await Promise.all([
           readAuthenticatedRows<any>("entries", "date.desc"),
           readAuthenticatedRows<Category>("categories"),
@@ -1273,22 +1885,29 @@ function App() {
           } catch (projectionError) {
             // Existing financial data remains available even if extending the
             // forecast fails; it will be retried the next time the app opens.
-            console.error("Fincore: falha ao estender recorrências", projectionError);
+            console.error(
+              "Fincore: falha ao estender recorrências",
+              projectionError,
+            );
           }
         }
         if (!active) return;
         setEntries(entriesToShow);
         setCategories(categoryRows);
-        setAccounts(accountRows.map((row: any) => ({
-          id: row.id,
-          name: row.name,
-          unit: row.unit as Unit,
-        })));
+        setAccounts(
+          accountRows.map((row: any) => ({
+            id: row.id,
+            name: row.name,
+            unit: row.unit as Unit,
+          })),
+        );
         setDataReady(true);
       } catch (error) {
         if (!active) return;
         console.error("Fincore: falha ao carregar dados", error);
-        setDataError("Não foi possível carregar os dados do banco. Tente novamente.");
+        setDataError(
+          "Não foi possível carregar os dados do banco. Tente novamente.",
+        );
         setDataReady(true);
       }
     })();
@@ -1297,54 +1916,99 @@ function App() {
     };
   }, [currentUser?.id]);
   const loadUsers = async () => {
-    const { data } = await supabase.from("profiles").select("id, full_name, email, role, allowed_units").order("created_at");
+    const { data } = await supabase
+      .from("profiles")
+      .select("id, full_name, email, role, allowed_units")
+      .order("created_at");
     if (!data) return;
-    setUsers(data.map((profile) => {
-      const access = profileAccess(profile.allowed_units);
-      return {
-      id: profile.id,
-      name: profile.full_name,
-      email: profile.email || (profile.id === currentUser?.id ? currentUser.email : ""),
-      role: profile.role as User["role"],
-      units: access.units,
-      canViewReports: access.canViewReports,
-    }; }));
+    setUsers(
+      data.map((profile) => {
+        const access = profileAccess(profile.allowed_units);
+        return {
+          id: profile.id,
+          name: profile.full_name,
+          email:
+            profile.email ||
+            (profile.id === currentUser?.id ? currentUser.email : ""),
+          role: profile.role as User["role"],
+          units: access.units,
+          canViewReports: access.canViewReports,
+        };
+      }),
+    );
   };
   useEffect(() => {
     if (currentUser?.role === "master") void loadUsers();
   }, [currentUser?.id, currentUser?.role]);
-  const createManagedUser = async ({ name, email, password, units: allowedUnits, canViewReports }: { name: string; email: string; password: string; units: Unit[]; canViewReports: boolean }) => {
+  const createManagedUser = async ({
+    name,
+    email,
+    password,
+    units: allowedUnits,
+    canViewReports,
+  }: {
+    name: string;
+    email: string;
+    password: string;
+    units: Unit[];
+    canViewReports: boolean;
+  }) => {
     const { data: sessionData } = await supabase.auth.getSession();
     const masterSession = sessionData.session;
-    if (!masterSession) throw new Error("Sua sessão expirou. Entre novamente para criar usuários.");
+    if (!masterSession)
+      throw new Error(
+        "Sua sessão expirou. Entre novamente para criar usuários.",
+      );
     const settingsResponse = await fetch(`${supabaseUrl}/auth/v1/settings`, {
       headers: { apikey: supabasePublishableKey },
     });
     const settings = settingsResponse.ok ? await settingsResponse.json() : null;
     if (settings?.mailer_autoconfirm === false) {
-      throw new Error("A criação de acessos está bloqueada: o Supabase exige confirmação por e-mail. Desative “Confirm email” em Authentication > Providers > Email para que as senhas criadas pelo Master funcionem imediatamente.");
+      throw new Error(
+        "A criação de acessos está bloqueada: o Supabase exige confirmação por e-mail. Desative “Confirm email” em Authentication > Providers > Email para que as senhas criadas pelo Master funcionem imediatamente.",
+      );
     }
     const { data, error } = await supabase.auth.signUp({
       email: email.trim(),
       password,
       options: { data: { full_name: name.trim() } },
     });
-    if (error || !data.user) throw error || new Error("Não foi possível criar o usuário.");
+    if (error || !data.user)
+      throw error || new Error("Não foi possível criar o usuário.");
     const { error: restoreError } = await supabase.auth.setSession({
       access_token: masterSession.access_token,
       refresh_token: masterSession.refresh_token,
     });
-    if (restoreError) throw new Error("Usuário criado, mas sua sessão Master precisa ser renovada.");
-    const { data: updatedProfile, error: profileError } = await supabase.from("profiles").update({
-      full_name: name.trim(),
-      email: email.trim().toLowerCase(),
-      role: "operador",
-      allowed_units: [...allowedUnits, ...(canViewReports ? [reportsAccessFlag] : [])],
-    }).eq("id", data.user.id).select("id").maybeSingle();
-    if (profileError || !updatedProfile) throw profileError || new Error("Perfil do usuário ainda não foi criado. Tente novamente em alguns segundos.");
+    if (restoreError)
+      throw new Error(
+        "Usuário criado, mas sua sessão Master precisa ser renovada.",
+      );
+    const { data: updatedProfile, error: profileError } = await supabase
+      .from("profiles")
+      .update({
+        full_name: name.trim(),
+        email: email.trim().toLowerCase(),
+        role: "operador",
+        allowed_units: [
+          ...allowedUnits,
+          ...(canViewReports ? [reportsAccessFlag] : []),
+        ],
+      })
+      .eq("id", data.user.id)
+      .select("id")
+      .maybeSingle();
+    if (profileError || !updatedProfile)
+      throw (
+        profileError ||
+        new Error(
+          "Perfil do usuário ainda não foi criado. Tente novamente em alguns segundos.",
+        )
+      );
   };
   const resetManagedUserPassword = async (user: User) => {
-    const password = window.prompt(`Nova senha para ${user.name} (mínimo de 6 caracteres):`);
+    const password = window.prompt(
+      `Nova senha para ${user.name} (mínimo de 6 caracteres):`,
+    );
     if (password === null) return;
     const { error } = await supabase.rpc("master_reset_user_password", {
       target_user: user.id,
@@ -1370,16 +2034,25 @@ function App() {
     // on a protected screen when the network is slow.
     setCurrentUser(null);
     setDataReady(false);
-    void supabase.auth.signOut().catch((error) =>
-      console.error("Fincore: falha ao encerrar sessão", error),
-    );
+    void supabase.auth
+      .signOut()
+      .catch((error) =>
+        console.error("Fincore: falha ao encerrar sessão", error),
+      );
   };
   if (!authReady)
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#f2f4f8] p-6 text-center">
         <div className="rounded-2xl bg-white px-8 py-7 shadow-sm">
-          <img src="/sistema-financeiro/fincore-logo-transparent.png" alt="Fincore" className="mx-auto w-36" />
-          <div className="mx-auto mt-6 h-7 w-7 animate-spin rounded-full border-[3px] border-blue-100 border-t-blue-700" aria-label="Carregando" />
+          <img
+            src="/sistema-financeiro/fincore-logo-transparent.png"
+            alt="Fincore"
+            className="mx-auto w-36"
+          />
+          <div
+            className="mx-auto mt-6 h-7 w-7 animate-spin rounded-full border-[3px] border-blue-100 border-t-blue-700"
+            aria-label="Carregando"
+          />
         </div>
       </main>
     );
@@ -1388,11 +2061,20 @@ function App() {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#f2f4f8] p-6 text-center">
         <div className="rounded-2xl bg-white px-8 py-7 shadow-sm">
-          <img src="/sistema-financeiro/fincore-logo-transparent.png" alt="Fincore" className="mx-auto w-36" />
+          <img
+            src="/sistema-financeiro/fincore-logo-transparent.png"
+            alt="Fincore"
+            className="mx-auto w-36"
+          />
           {dataError ? (
-            <p className="mt-5 text-sm font-bold text-red-600">Não foi possível carregar. Atualize a página.</p>
+            <p className="mt-5 text-sm font-bold text-red-600">
+              Não foi possível carregar. Atualize a página.
+            </p>
           ) : (
-            <div className="mx-auto mt-6 h-7 w-7 animate-spin rounded-full border-[3px] border-blue-100 border-t-blue-700" aria-label="Carregando" />
+            <div
+              className="mx-auto mt-6 h-7 w-7 animate-spin rounded-full border-[3px] border-blue-100 border-t-blue-700"
+              aria-label="Carregando"
+            />
           )}
         </div>
       </main>
@@ -1409,7 +2091,10 @@ function App() {
       if (currentUser.role !== "master") return;
       const name = window.prompt("Nome da nova conta:");
       if (!name?.trim()) return;
-      const unit = window.prompt("Centro de custo (Marketing, Sítio, Consultoria ou Pessoa Física):", "Consultoria") as Unit | null;
+      const unit = window.prompt(
+        "Centro de custo (Marketing, Sítio, Consultoria ou Pessoa Física):",
+        "Consultoria",
+      ) as Unit | null;
       if (!unit || !units.some((item) => item.name === unit)) return;
       const account = { id: id(), name: name.trim(), unit };
       const { error } = await supabase.from("accounts").insert(account);
@@ -1476,28 +2161,26 @@ function App() {
       if (editing) {
         const isWholeSeries = scope === "series" && Boolean(editing.seriesId);
         const updated = entries.map((x) =>
-            (
-              isWholeSeries
-                ? x.seriesId === editing.seriesId
-                : x.id === editing.id
-            )
-              ? {
-                  ...x,
-                  ...data,
-                  id: x.id,
-                  seriesId: x.seriesId,
-                  // The form date belongs to the occurrence being edited. On a
-                  // whole-series update, every occurrence must retain its own
-                  // due date; only its shared financial details change.
-                  date: isWholeSeries ? x.date : data.date,
-                  installment: x.installment,
-                }
-              : x,
+          (
+            isWholeSeries
+              ? x.seriesId === editing.seriesId
+              : x.id === editing.id
+          )
+            ? {
+                ...x,
+                ...data,
+                id: x.id,
+                seriesId: x.seriesId,
+                // The form date belongs to the occurrence being edited. On a
+                // whole-series update, every occurrence must retain its own
+                // due date; only its shared financial details change.
+                date: isWholeSeries ? x.date : data.date,
+                installment: x.installment,
+              }
+            : x,
         );
         const changed = updated.filter((x) =>
-          isWholeSeries
-            ? x.seriesId === editing.seriesId
-            : x.id === editing.id,
+          isWholeSeries ? x.seriesId === editing.seriesId : x.id === editing.id,
         );
         await saveRemoteEntries(changed);
         setEntries(updated);
@@ -1511,24 +2194,22 @@ function App() {
             : undefined,
         count = data.recurrence === "mensal" ? 36 : data.installments;
       const created = Array.from({ length: count }, (_, i) => {
-          const due = new Date(base);
-          due.setMonth(base.getMonth() + i);
-          return {
-            ...data,
-            id: id(),
-            seriesId,
-            amount:
-              data.recurrence === "mensal"
-                ? data.amount
-                : data.amount / data.installments,
-            date: due.toISOString().slice(0, 10),
-            installments: 1,
-            installment:
-              data.installments > 1
-                ? `${i + 1}/${data.installments}`
-                : undefined,
-          };
-        });
+        const due = new Date(base);
+        due.setMonth(base.getMonth() + i);
+        return {
+          ...data,
+          id: id(),
+          seriesId,
+          amount:
+            data.recurrence === "mensal"
+              ? data.amount
+              : data.amount / data.installments,
+          date: due.toISOString().slice(0, 10),
+          installments: 1,
+          installment:
+            data.installments > 1 ? `${i + 1}/${data.installments}` : undefined,
+        };
+      });
       await saveRemoteEntries(created);
       setEntries((old) => [...created, ...old]);
     },
@@ -1546,9 +2227,12 @@ function App() {
           ? v.seriesId === x.seriesId
           : v.id === x.id,
       );
-      if (scope === "series" && x.seriesId) await deleteRemoteEntrySeries(x.seriesId);
+      if (scope === "series" && x.seriesId)
+        await deleteRemoteEntrySeries(x.seriesId);
       else await deleteRemoteEntries(removed.map((entry) => entry.id));
-      setEntries((old) => old.filter((v) => !removed.some((entry) => entry.id === v.id)));
+      setEntries((old) =>
+        old.filter((v) => !removed.some((entry) => entry.id === v.id)),
+      );
     },
     open = (kind: Kind) => {
       setEditing(null);
@@ -1584,8 +2268,14 @@ function App() {
       >
         <div className="flex items-center justify-between border-b border-white/10 px-4 py-6">
           <div className="min-w-0 flex-1 text-center">
-            <img src="/sistema-financeiro/fincore-logo-transparent.png" alt="Fincore" className="mx-auto h-14 w-40 object-contain brightness-0 invert" />
-            <p className="mt-1.5 text-xs font-medium text-blue-200/70">Gestão financeira</p>
+            <img
+              src="/sistema-financeiro/fincore-logo-transparent.png"
+              alt="Fincore"
+              className="mx-auto h-14 w-40 object-contain brightness-0 invert"
+            />
+            <p className="mt-1.5 text-xs font-medium text-blue-200/70">
+              Gestão financeira
+            </p>
           </div>
           <button className="lg:hidden" onClick={() => setMenu(false)}>
             <X />
@@ -1593,9 +2283,12 @@ function App() {
         </div>
         <nav className="flex-1 space-y-1 p-3">
           {nav
-            .filter((x) =>
-              (currentUser.role === "master" || x.id !== "usuarios") &&
-              (x.id !== "relatorios" || currentUser.role === "master" || currentUser.canViewReports),
+            .filter(
+              (x) =>
+                (currentUser.role === "master" || x.id !== "usuarios") &&
+                (x.id !== "relatorios" ||
+                  currentUser.role === "master" ||
+                  currentUser.canViewReports),
             )
             .map((x) => (
               <button
@@ -1613,9 +2306,18 @@ function App() {
             ))}
         </nav>
         <div className="border-t border-white/10 p-4">
-          <p className="truncate text-sm font-bold text-white">{currentUser.name}</p>
-          <p className="mb-3 truncate text-[11px] text-blue-200/70">{currentUser.email}</p>
-          <button onClick={logout} className="w-full rounded-lg border border-white/15 px-2.5 py-2 text-xs font-bold text-blue-100 hover:bg-white/10">Sair da conta</button>
+          <p className="truncate text-sm font-bold text-white">
+            {currentUser.name}
+          </p>
+          <p className="mb-3 truncate text-[11px] text-blue-200/70">
+            {currentUser.email}
+          </p>
+          <button
+            onClick={logout}
+            className="w-full rounded-lg border border-white/15 px-2.5 py-2 text-xs font-bold text-blue-100 hover:bg-white/10"
+          >
+            Sair da conta
+          </button>
         </div>
       </aside>
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -1636,7 +2338,7 @@ function App() {
                         ? "Usuários e acessos"
                         : screen === "relatorios"
                           ? "Relatórios financeiros"
-                      : "Lançamentos"}
+                          : "Lançamentos"}
               </h1>
               <p className="text-xs text-gray-400">
                 Marketing, Sítio, Consultoria e Pessoa Física
@@ -1646,8 +2348,18 @@ function App() {
           <div className="flex items-center gap-2">
             {screen !== "lancamentos" && (
               <div className="hidden items-center gap-2 sm:flex">
-                <button onClick={() => open("despesa")} className="rounded-lg bg-red-50 px-3 py-2 text-xs font-extrabold text-red-600 hover:bg-red-100">− Despesa</button>
-                <button onClick={() => open("receita")} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-extrabold text-white hover:bg-emerald-700">+ Receita</button>
+                <button
+                  onClick={() => open("despesa")}
+                  className="rounded-lg bg-red-50 px-3 py-2 text-xs font-extrabold text-red-600 hover:bg-red-100"
+                >
+                  − Despesa
+                </button>
+                <button
+                  onClick={() => open("receita")}
+                  className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-extrabold text-white hover:bg-emerald-700"
+                >
+                  + Receita
+                </button>
               </div>
             )}
             <div className="relative">
@@ -1786,10 +2498,14 @@ function App() {
                 {allowedUnits.map((u) => {
                   const d = current.filter((x) => x.unit === u.name),
                     income = d
-                      .filter((x) => x.kind === "receita" && x.status === "realizado")
+                      .filter(
+                        (x) => x.kind === "receita" && x.status === "realizado",
+                      )
                       .reduce((s, x) => s + x.amount, 0),
                     expense = d
-                      .filter((x) => x.kind === "despesa" && x.status === "realizado")
+                      .filter(
+                        (x) => x.kind === "despesa" && x.status === "realizado",
+                      )
                       .reduce((s, x) => s + x.amount, 0);
                   return (
                     <article
@@ -1917,7 +2633,7 @@ function App() {
                   .filter(
                     (account) =>
                       currentUser.role === "master" ||
-                        currentUser.units.includes(account.unit),
+                      currentUser.units.includes(account.unit),
                   )
                   .map((account) => (
                     <article
@@ -1950,9 +2666,23 @@ function App() {
               </div>
             </section>
           ) : screen === "relatorios" ? (
-            <Reports entries={entries.filter((entry) => currentUser.role === "master" || currentUser.units.includes(entry.unit))} accounts={accounts} allowedUnits={allowedUnits} />
+            <Reports
+              entries={entries.filter(
+                (entry) =>
+                  currentUser.role === "master" ||
+                  currentUser.units.includes(entry.unit),
+              )}
+              accounts={accounts}
+              allowedUnits={allowedUnits}
+            />
           ) : screen === "usuarios" ? (
-            <UsersAdmin users={users} reload={loadUsers} createUser={createManagedUser} resetPassword={resetManagedUserPassword} toggleReports={toggleManagedUserReports} />
+            <UsersAdmin
+              users={users}
+              reload={loadUsers}
+              createUser={createManagedUser}
+              resetPassword={resetManagedUserPassword}
+              toggleReports={toggleManagedUserReports}
+            />
           ) : screen === "categorias" ? (
             <section className="rounded-2xl bg-white p-5 shadow-sm">
               <div className="mb-5 flex flex-wrap justify-between gap-3">
@@ -2023,7 +2753,10 @@ function App() {
                                       try {
                                         await deleteRemoteCategory(c.id);
                                       } catch (error) {
-                                        console.error("Fincore: falha ao excluir categoria", error);
+                                        console.error(
+                                          "Fincore: falha ao excluir categoria",
+                                          error,
+                                        );
                                         return;
                                       }
                                       setCategories((old) =>
