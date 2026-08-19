@@ -340,6 +340,68 @@ function ScopeDialog({
     </div>
   );
 }
+function DeleteCategoryDialog({
+  category,
+  close,
+  remove,
+}: {
+  category: Category;
+  close: () => void;
+  remove: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+        <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-full bg-red-100 text-xl font-bold text-red-600">
+          −
+        </div>
+        <h2 className="text-lg font-extrabold text-[#14213d]">
+          Excluir categoria
+        </h2>
+        <p className="mt-2 text-sm text-gray-500">
+          Excluir <strong>{category.name}</strong> do centro de custo{" "}
+          <strong>{category.unit}</strong>?
+        </p>
+        <p className="mt-2 text-xs leading-5 text-gray-400">
+          Os lançamentos já cadastrados serão preservados. Esta categoria apenas
+          deixará de aparecer em novos lançamentos.
+        </p>
+        {error && <p className="mt-4 text-sm font-bold text-red-600">{error}</p>}
+        <div className="mt-6 flex gap-3">
+          <button
+            onClick={close}
+            disabled={busy}
+            className="flex-1 rounded-xl border border-gray-200 px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={async () => {
+              setBusy(true);
+              setError("");
+              try {
+                await remove();
+              } catch (reason) {
+                setError(
+                  reason instanceof Error
+                    ? reason.message
+                    : "Não foi possível excluir a categoria.",
+                );
+                setBusy(false);
+              }
+            }}
+            disabled={busy}
+            className="flex-1 rounded-xl bg-red-600 px-4 py-3 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-60"
+          >
+            {busy ? "Excluindo..." : "Excluir categoria"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 function Login({ onLogin }: { onLogin: (user: User) => void }) {
   const [email, setEmail] = useState(""),
     [password, setPassword] = useState(""),
@@ -1763,6 +1825,7 @@ function App() {
     [modal, setModal] = useState<Kind | null>(null),
     [categoryModal, setCategoryModal] = useState(false),
     [editingCategory, setEditingCategory] = useState<Category | null>(null),
+    [deletingCategory, setDeletingCategory] = useState<Category | null>(null),
     [editing, setEditing] = useState<Entry | null>(null),
     [scopeDialog, setScopeDialog] = useState<{
       entry: Entry;
@@ -1937,6 +2000,11 @@ function App() {
         };
       }),
     );
+  };
+  const removeCategory = async (category: Category) => {
+    await deleteRemoteCategory(category.id);
+    setCategories((old) => old.filter((item) => item.id !== category.id));
+    setDeletingCategory(null);
   };
   useEffect(() => {
     if (currentUser?.role === "master") void loadUsers();
@@ -2750,25 +2818,11 @@ function App() {
                                   Editar
                                 </button>
                                 <button
-                                  onClick={async () => {
-                                    if (window.confirm(`Excluir ${c.name}?`)) {
-                                      try {
-                                        await deleteRemoteCategory(c.id);
-                                      } catch (error) {
-                                        console.error(
-                                          "Fincore: falha ao excluir categoria",
-                                          error,
-                                        );
-                                        return;
-                                      }
-                                      setCategories((old) =>
-                                        old.filter((x) => x.id !== c.id),
-                                      );
-                                    }
-                                  }}
-                                  className="text-gray-300 hover:text-red-600"
+                                  onClick={() => setDeletingCategory(c)}
+                                  className="rounded px-1.5 py-1 text-red-600 hover:bg-red-50"
+                                  aria-label={`Excluir categoria ${c.name}`}
                                 >
-                                  <X className="h-3 w-3" />
+                                  Excluir
                                 </button>
                               </div>
                             ))}
@@ -2936,6 +2990,13 @@ function App() {
             await saveRemoteCategory(c);
             setCategories((old) => old.map((x) => (x.id === c.id ? c : x)));
           }}
+        />
+      )}
+      {deletingCategory && (
+        <DeleteCategoryDialog
+          category={deletingCategory}
+          close={() => setDeletingCategory(null)}
+          remove={() => removeCategory(deletingCategory)}
         />
       )}
     </div>
