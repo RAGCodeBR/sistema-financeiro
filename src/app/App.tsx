@@ -171,12 +171,14 @@ const baseAccounts: Account[] = [
 const id = () => crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 const entryScheduleLabel = (entry: Entry) =>
   entry.recurrence === "mensal"
-    ? "Recorrente mensal"
+    ? entry.installment
+      ? `Recorrente mensal · Parcela ${entry.installment}`
+      : "Recorrente mensal"
     : entry.installment
       ? `Parcela ${entry.installment}`
       : "Lançamento único";
-const recurringOccurrenceId = (seriesId: string, date: string) => {
-  const source = `${seriesId}:${date}`;
+const recurringOccurrenceId = (seriesId: string, date: string, slot = "") => {
+  const source = slot ? `${seriesId}:${date}:${slot}` : `${seriesId}:${date}`;
   let a = 0x811c9dc5,
     b = 0x9e3779b9,
     c = 0x85ebca6b,
@@ -301,31 +303,55 @@ function nextRecurringEntries(entries: Entry[]) {
     });
 
   series.forEach((occurrences) => {
-    const last = [...occurrences]
-      .sort((a, b) => a.date.localeCompare(b.date))
+    const latestMonth = [...occurrences]
+      .map((entry) => entry.date.slice(0, 7))
+      .sort()
       .at(-1);
-    if (!last) return;
-    const nextDate = new Date(`${last.date}T12:00:00`);
-    nextDate.setMonth(nextDate.getMonth() + 1);
+    if (!latestMonth) return;
+    // The last month in a series is its template. A normal recurring entry
+    // has one template; an adiantamento + saldo series has two or more, each
+    // retaining its own date, amount, PIX and other details every month.
+    const templates = occurrences
+      .filter((entry) => entry.date.startsWith(latestMonth))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    if (!templates.length) return;
+    const nextMonth = new Date(`${latestMonth}-01T12:00:00`);
+    nextMonth.setMonth(nextMonth.getMonth() + 1);
     // A gap can happen when nobody opens the system for a long time. Do not
     // invent old financial commitments in that case: preserve real history
     // and resume the forecast from the current month onward.
-    if (nextDate < startOfCurrentMonth)
-      nextDate.setTime(startOfCurrentMonth.getTime());
-    while (nextDate <= endOfWindow) {
-      generated.push({
-        ...last,
-        // Deterministic id makes this operation safe if Master and an operator
-        // open the same centre at the same moment: both upsert the same month.
-        id: recurringOccurrenceId(
-          last.seriesId!,
-          nextDate.toISOString().slice(0, 10),
-        ),
-        date: nextDate.toISOString().slice(0, 10),
-        status: "previsto",
-        installment: undefined,
+    if (nextMonth < startOfCurrentMonth)
+      nextMonth.setTime(startOfCurrentMonth.getTime());
+    while (nextMonth <= endOfWindow) {
+      const lastDay = new Date(
+        nextMonth.getFullYear(),
+        nextMonth.getMonth() + 1,
+        0,
+      ).getDate();
+      templates.forEach((template, index) => {
+        const sourceDate = new Date(`${template.date}T12:00:00`);
+        const dueDate = new Date(
+          nextMonth.getFullYear(),
+          nextMonth.getMonth(),
+          Math.min(sourceDate.getDate(), lastDay),
+        )
+          .toISOString()
+          .slice(0, 10);
+        generated.push({
+          ...template,
+          // Deterministic IDs make concurrent projections from Master and
+          // operators safe. Multi-part monthly series include their position
+          // so two payments on the same day never collide.
+          id: recurringOccurrenceId(
+            template.seriesId!,
+            dueDate,
+            templates.length > 1 ? template.installment || String(index) : "",
+          ),
+          date: dueDate,
+          status: "previsto",
+        });
       });
-      nextDate.setMonth(nextDate.getMonth() + 1);
+      nextMonth.setMonth(nextMonth.getMonth() + 1);
     }
   });
   return generated;
@@ -1061,10 +1087,7 @@ function EntryForm({
                 checked={recurrence}
                 onChange={(e) => {
                   setRecurrence(e.target.checked);
-                  if (e.target.checked) {
-                    setInstallments(1);
-                    setSameMonthInstallments(false);
-                  }
+                  if (e.target.checked) setInstallments(1);
                 }}
               />
               <Repeat2 className="h-4 w-4 text-blue-600" />
@@ -1116,7 +1139,6 @@ function EntryForm({
                       const enabled = e.target.checked;
                       setSameMonthInstallments(enabled);
                       if (enabled) {
-                        setRecurrence(false);
                         setInstallments(1);
                         setSameMonthPartsState(
                           sameMonthParts(
@@ -1128,7 +1150,7 @@ function EntryForm({
                       }
                     }}
                   />
-                  Dividir dentro deste mês
+                  Dividir dentro de cada mês
                 </label>
                 <p className="mt-1 text-xs text-blue-700">
                   Ideal para adiantamento e saldo de salário, ou pagamentos em
@@ -1230,9 +1252,15 @@ function EntryForm({
                 </p>
               </div>
             )}
-            {recurrence && (
+            {recurrence && !sameMonthInstallments && (
               <p className="col-span-full text-xs text-blue-700">
                 O valor será repetido mensalmente, sem divisão.
+              </p>
+            )}
+            {recurrence && sameMonthInstallments && (
+              <p className="col-span-full text-xs text-blue-700">
+                Cada parcela será repetida todos os meses, nas datas e valores
+                definidos acima.
               </p>
             )}
             {!recurrence && installments > 1 && (
