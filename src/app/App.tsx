@@ -212,6 +212,38 @@ const moneyInput = (value: number) =>
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+function CurrencyInput({
+  value,
+  onChange,
+  className = "",
+  placeholder = "0,00",
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  className?: string;
+  placeholder?: string;
+}) {
+  const parsed = parseMoney(value);
+  const display = value && Number.isFinite(parsed) ? moneyInput(parsed) : "";
+  return (
+    <div className="relative mt-1.5">
+      <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm font-bold text-gray-400">
+        R$
+      </span>
+      <input
+        required
+        inputMode="numeric"
+        value={display}
+        onChange={(event) => {
+          const digits = event.target.value.replace(/\D/g, "");
+          onChange(digits ? String(Number(digits) / 100) : "");
+        }}
+        className={`w-full rounded-xl border bg-gray-50 p-3 pl-10 text-sm font-normal ${className}`}
+        placeholder={placeholder}
+      />
+    </div>
+  );
+}
 type SameMonthPart = { date: string; amount: string };
 const sameMonthParts = (count: number, total: number, baseDate: string) => {
   const safeCount = Math.max(2, Math.min(12, Math.floor(count) || 2));
@@ -247,6 +279,11 @@ const labelMonth = (d: Date) =>
     .replace(/^./, (c) => c.toUpperCase());
 
 function nextRecurringEntries(entries: Entry[]) {
+  const startOfCurrentMonth = new Date(
+    new Date().getFullYear(),
+    new Date().getMonth(),
+    1,
+  );
   const endOfWindow = new Date(
     new Date().getFullYear(),
     new Date().getMonth() + 36,
@@ -270,6 +307,11 @@ function nextRecurringEntries(entries: Entry[]) {
     if (!last) return;
     const nextDate = new Date(`${last.date}T12:00:00`);
     nextDate.setMonth(nextDate.getMonth() + 1);
+    // A gap can happen when nobody opens the system for a long time. Do not
+    // invent old financial commitments in that case: preserve real history
+    // and resume the forecast from the current month onward.
+    if (nextDate < startOfCurrentMonth)
+      nextDate.setTime(startOfCurrentMonth.getTime());
     while (nextDate <= endOfWindow) {
       generated.push({
         ...last,
@@ -988,14 +1030,7 @@ function EntryForm({
           <div className="grid gap-4 sm:grid-cols-3">
             <label className="text-xs font-bold">
               Valor
-              <input
-                required
-                inputMode="decimal"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal"
-                placeholder="0,00"
-              />
+              <CurrencyInput value={amount} onChange={setAmount} />
             </label>
             <label className="text-xs font-bold">
               Data
@@ -1167,19 +1202,18 @@ function EntryForm({
                     </label>
                     <label className="text-[11px] font-bold text-gray-500">
                       Valor
-                      <input
-                        inputMode="decimal"
+                      <CurrencyInput
                         value={part.amount}
-                        onChange={(e) =>
+                        onChange={(value) =>
                           setSameMonthPartsState((old) =>
                             old.map((item, itemIndex) =>
                               itemIndex === index
-                                ? { ...item, amount: e.target.value }
+                                ? { ...item, amount: value }
                                 : item,
                             ),
                           )
                         }
-                        className="mt-1 block w-full rounded-lg border bg-gray-50 p-2 text-sm font-normal"
+                        className="mt-1 block rounded-lg p-2"
                       />
                     </label>
                   </div>
