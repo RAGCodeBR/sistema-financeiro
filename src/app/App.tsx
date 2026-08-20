@@ -1093,21 +1093,22 @@ function EntryForm({
               <Repeat2 className="h-4 w-4 text-blue-600" />
               Recorrente mensal
             </label>
-            <label className="flex items-center gap-2 text-sm font-bold">
-              <CalendarClock className="h-4 w-4 text-blue-600" />
-              Parcelas mensais
-              <input
-                disabled={recurrence || sameMonthInstallments}
-                min="1"
-                max="120"
-                type="number"
-                value={installments}
-                onChange={(e) =>
-                  setInstallments(Math.max(1, Number(e.target.value) || 1))
-                }
-                className="w-16 rounded-lg border bg-white p-1.5 text-center font-normal"
-              />
-            </label>
+            {!recurrence && !sameMonthInstallments && (
+              <label className="flex items-center gap-2 text-sm font-bold">
+                <CalendarClock className="h-4 w-4 text-blue-600" />
+                Parcelar em meses
+                <input
+                  min="1"
+                  max="120"
+                  type="number"
+                  value={installments}
+                  onChange={(e) =>
+                    setInstallments(Math.max(1, Number(e.target.value) || 1))
+                  }
+                  className="w-16 rounded-lg border bg-white p-1.5 text-center font-normal"
+                />
+              </label>
+            )}
             {editing?.seriesId && (
               <label className="col-span-full flex gap-3 text-xs font-bold text-blue-800">
                 Alterar:{" "}
@@ -1265,7 +1266,7 @@ function EntryForm({
             )}
             {!recurrence && installments > 1 && (
               <p className="col-span-full text-xs text-blue-700">
-                {installments} parcelas mensais de{" "}
+                Lançamento com fim: {installments} parcelas mensais de{" "}
                 {fmt((parseMoney(amount) || 0) / installments)}.
               </p>
             )}
