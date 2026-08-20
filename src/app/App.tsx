@@ -2563,15 +2563,46 @@ function App() {
       }
       if (monthParts?.length) {
         const seriesId = id();
-        const created = monthParts.map((part, index) => ({
-          ...data,
-          id: id(),
-          seriesId,
-          amount: parseMoney(part.amount),
-          date: part.date,
-          installments: 1,
-          installment: `${index + 1}/${monthParts.length}`,
-        }));
+        const start = new Date(`${data.date}T12:00:00`);
+        // A recurring split is a single monthly series with multiple fixed
+        // occurrences (for example, vale on the 15th and salary on the 30th).
+        // Create the full rolling forecast immediately so September, October
+        // and later months appear without needing a reload.
+        const created = Array.from(
+          { length: data.recurrence === "mensal" ? 36 : 1 },
+          (_, monthIndex) => {
+            const dueMonth = new Date(
+              start.getFullYear(),
+              start.getMonth() + monthIndex,
+              1,
+            );
+            const lastDay = new Date(
+              dueMonth.getFullYear(),
+              dueMonth.getMonth() + 1,
+              0,
+            ).getDate();
+            return monthParts.map((part, index) => {
+              const sourceDate = new Date(`${part.date}T12:00:00`);
+              const dueDate = new Date(
+                dueMonth.getFullYear(),
+                dueMonth.getMonth(),
+                Math.min(sourceDate.getDate(), lastDay),
+              )
+                .toISOString()
+                .slice(0, 10);
+              return {
+                ...data,
+                id: id(),
+                seriesId,
+                amount: parseMoney(part.amount),
+                date: dueDate,
+                status: monthIndex === 0 ? data.status : "previsto",
+                installments: 1,
+                installment: `${index + 1}/${monthParts.length}`,
+              };
+            });
+          },
+        ).flat();
         await saveRemoteEntries(created);
         setEntries((old) => [...created, ...old]);
         return;
@@ -2594,6 +2625,7 @@ function App() {
               ? data.amount
               : data.amount / data.installments,
           date: due.toISOString().slice(0, 10),
+          status: i === 0 ? data.status : "previsto",
           installments: 1,
           installment:
             data.installments > 1 ? `${i + 1}/${data.installments}` : undefined,
