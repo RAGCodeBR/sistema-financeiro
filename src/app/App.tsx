@@ -195,6 +195,52 @@ const recurringOccurrenceId = (seriesId: string, date: string) => {
 };
 const fmt = (n: number) =>
   n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const parseMoney = (value: string) => {
+  const raw = value.replace(/R\$\s?/gi, "").replace(/\s/g, "");
+  if (!raw) return NaN;
+  if (raw.includes(","))
+    return Number(raw.replace(/\./g, "").replace(",", "."));
+  const parts = raw.split(".");
+  // In Brazilian notation, 1.500 means fifteen hundred. A dot followed by
+  // one or two digits is still accepted as a decimal separator for convenience.
+  if (parts.length > 1 && (parts.length > 2 || parts.at(-1)!.length === 3))
+    return Number(parts.join(""));
+  return Number(raw);
+};
+const moneyInput = (value: number) =>
+  value.toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+type SameMonthPart = { date: string; amount: string };
+const sameMonthParts = (count: number, total: number, baseDate: string) => {
+  const safeCount = Math.max(2, Math.min(12, Math.floor(count) || 2));
+  const totalCents = Math.round(Math.max(0, total || 0) * 100);
+  const baseCents = Math.floor(totalCents / safeCount);
+  const remainder = totalCents - baseCents * safeCount;
+  const base = new Date(`${baseDate}T12:00:00`);
+  const lastDay = new Date(
+    base.getFullYear(),
+    base.getMonth() + 1,
+    0,
+  ).getDate();
+  const firstDay = Math.min(base.getDate(), lastDay);
+  return Array.from({ length: safeCount }, (_, index) => {
+    const day =
+      safeCount === 1
+        ? firstDay
+        : Math.round(
+            firstDay + ((lastDay - firstDay) * index) / (safeCount - 1),
+          );
+    const date = new Date(base.getFullYear(), base.getMonth(), day)
+      .toISOString()
+      .slice(0, 10);
+    return {
+      date,
+      amount: moneyInput((baseCents + (index < remainder ? 1 : 0)) / 100),
+    };
+  });
+};
 const labelMonth = (d: Date) =>
   d
     .toLocaleDateString("pt-BR", { month: "long", year: "numeric" })
@@ -368,7 +414,9 @@ function DeleteCategoryDialog({
           Os lançamentos já cadastrados serão preservados. Esta categoria apenas
           deixará de aparecer em novos lançamentos.
         </p>
-        {error && <p className="mt-4 text-sm font-bold text-red-600">{error}</p>}
+        {error && (
+          <p className="mt-4 text-sm font-bold text-red-600">{error}</p>
+        )}
         <div className="mt-6 flex gap-3">
           <button
             onClick={close}
@@ -710,7 +758,11 @@ function EntryForm({
   editing: Entry | null;
   scope?: "one" | "series";
   close: () => void;
-  save: (x: Omit<Entry, "id">, scope: "one" | "series") => Promise<void>;
+  save: (
+    x: Omit<Entry, "id">,
+    scope: "one" | "series",
+    sameMonthParts?: SameMonthPart[],
+  ) => Promise<void>;
 }) {
   const [kind, setKind] = useState<Kind>(editing?.kind ?? initial),
     [unit, setUnit] = useState<Unit>(editing?.unit ?? "Consultoria"),
@@ -728,6 +780,11 @@ function EntryForm({
     ),
     [recurrence, setRecurrence] = useState(editing?.recurrence === "mensal"),
     [installments, setInstallments] = useState(editing?.installments ?? 1),
+    [sameMonthInstallments, setSameMonthInstallments] = useState(false),
+    [sameMonthPartCount, setSameMonthPartCount] = useState(2),
+    [sameMonthPartsState, setSameMonthPartsState] = useState<SameMonthPart[]>(
+      [],
+    ),
     [scope, setScope] = useState<"one" | "series">(initialScope ?? "one"),
     [saving, setSaving] = useState(false),
     [saveError, setSaveError] = useState("");
@@ -740,8 +797,42 @@ function EntryForm({
   }, [kind, unit, categories]);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    const v = Number(amount.replace(",", "."));
-    if (!description.trim() || !v || !category) return;
+    const v = parseMoney(amount);
+    if (!description.trim()) {
+      setSaveError("Informe uma descrição para o lançamento.");
+      return;
+    }
+    if (!Number.isFinite(v) || v <= 0) {
+      setSaveError("Informe um valor válido, por exemplo 1.500,00.");
+      return;
+    }
+    if (!category) {
+      setSaveError("Selecione uma categoria antes de salvar.");
+      return;
+    }
+    if (sameMonthInstallments) {
+      const partsTotal = sameMonthPartsState.reduce(
+        (sum, part) => sum + parseMoney(part.amount),
+        0,
+      );
+      const validDates = sameMonthPartsState.every(
+        (part) =>
+          part.date &&
+          part.date.slice(0, 7) === date.slice(0, 7) &&
+          Number.isFinite(parseMoney(part.amount)) &&
+          parseMoney(part.amount) > 0,
+      );
+      if (!validDates) {
+        setSaveError(
+          "Informe uma data e um valor válido para cada parcela deste mês.",
+        );
+        return;
+      }
+      if (Math.round(partsTotal * 100) !== Math.round(v * 100)) {
+        setSaveError("A soma das parcelas precisa ser igual ao valor total.");
+        return;
+      }
+    }
     setSaving(true);
     setSaveError("");
     try {
@@ -761,9 +852,10 @@ function EntryForm({
           date,
           status,
           recurrence: recurrence ? "mensal" : "nenhuma",
-          installments,
+          installments: sameMonthInstallments ? 1 : installments,
         },
         scope,
+        sameMonthInstallments ? sameMonthPartsState : undefined,
       );
       close();
     } catch (error) {
@@ -934,7 +1026,10 @@ function EntryForm({
                 checked={recurrence}
                 onChange={(e) => {
                   setRecurrence(e.target.checked);
-                  if (e.target.checked) setInstallments(1);
+                  if (e.target.checked) {
+                    setInstallments(1);
+                    setSameMonthInstallments(false);
+                  }
                 }}
               />
               <Repeat2 className="h-4 w-4 text-blue-600" />
@@ -942,14 +1037,16 @@ function EntryForm({
             </label>
             <label className="flex items-center gap-2 text-sm font-bold">
               <CalendarClock className="h-4 w-4 text-blue-600" />
-              Parcelas
+              Parcelas mensais
               <input
-                disabled={recurrence}
+                disabled={recurrence || sameMonthInstallments}
                 min="1"
                 max="120"
                 type="number"
                 value={installments}
-                onChange={(e) => setInstallments(Number(e.target.value))}
+                onChange={(e) =>
+                  setInstallments(Math.max(1, Number(e.target.value) || 1))
+                }
                 className="w-16 rounded-lg border bg-white p-1.5 text-center font-normal"
               />
             </label>
@@ -974,6 +1071,131 @@ function EntryForm({
                 </span>
               </label>
             )}
+            {!editing && (
+              <div className="col-span-full border-t border-blue-100 pt-3">
+                <label className="flex items-center gap-2 text-sm font-bold">
+                  <input
+                    type="checkbox"
+                    checked={sameMonthInstallments}
+                    onChange={(e) => {
+                      const enabled = e.target.checked;
+                      setSameMonthInstallments(enabled);
+                      if (enabled) {
+                        setRecurrence(false);
+                        setInstallments(1);
+                        setSameMonthPartsState(
+                          sameMonthParts(
+                            sameMonthPartCount,
+                            parseMoney(amount) || 0,
+                            date,
+                          ),
+                        );
+                      }
+                    }}
+                  />
+                  Dividir dentro deste mês
+                </label>
+                <p className="mt-1 text-xs text-blue-700">
+                  Ideal para adiantamento e saldo de salário, ou pagamentos em
+                  2x e 3x no mesmo mês.
+                </p>
+              </div>
+            )}
+            {sameMonthInstallments && !editing && (
+              <div className="col-span-full space-y-3 rounded-xl bg-white p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label className="flex items-center gap-2 text-xs font-bold text-slate-700">
+                    Quantidade de parcelas
+                    <input
+                      min="2"
+                      max="12"
+                      type="number"
+                      value={sameMonthPartCount}
+                      onChange={(e) => {
+                        const count = Math.max(
+                          2,
+                          Math.min(12, Number(e.target.value) || 2),
+                        );
+                        setSameMonthPartCount(count);
+                        setSameMonthPartsState(
+                          sameMonthParts(count, parseMoney(amount) || 0, date),
+                        );
+                      }}
+                      className="w-16 rounded-lg border bg-gray-50 p-1.5 text-center font-normal"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSameMonthPartsState(
+                        sameMonthParts(
+                          sameMonthPartCount,
+                          parseMoney(amount) || 0,
+                          date,
+                        ),
+                      )
+                    }
+                    className="text-xs font-bold text-blue-700 hover:text-blue-900"
+                  >
+                    Dividir valor igualmente
+                  </button>
+                </div>
+                {sameMonthPartsState.map((part, index) => (
+                  <div
+                    key={index}
+                    className="grid gap-2 sm:grid-cols-[auto_1fr_1fr] sm:items-end"
+                  >
+                    <span className="pb-3 text-xs font-extrabold text-blue-700">
+                      {index + 1}ª parcela
+                    </span>
+                    <label className="text-[11px] font-bold text-gray-500">
+                      Data
+                      <input
+                        type="date"
+                        value={part.date}
+                        onChange={(e) =>
+                          setSameMonthPartsState((old) =>
+                            old.map((item, itemIndex) =>
+                              itemIndex === index
+                                ? { ...item, date: e.target.value }
+                                : item,
+                            ),
+                          )
+                        }
+                        className="mt-1 block w-full rounded-lg border bg-gray-50 p-2 text-sm font-normal"
+                      />
+                    </label>
+                    <label className="text-[11px] font-bold text-gray-500">
+                      Valor
+                      <input
+                        inputMode="decimal"
+                        value={part.amount}
+                        onChange={(e) =>
+                          setSameMonthPartsState((old) =>
+                            old.map((item, itemIndex) =>
+                              itemIndex === index
+                                ? { ...item, amount: e.target.value }
+                                : item,
+                            ),
+                          )
+                        }
+                        className="mt-1 block w-full rounded-lg border bg-gray-50 p-2 text-sm font-normal"
+                      />
+                    </label>
+                  </div>
+                ))}
+                <p className="text-xs font-bold text-blue-800">
+                  Total das parcelas:{" "}
+                  {fmt(
+                    sameMonthPartsState.reduce(
+                      (sum, part) => sum + (parseMoney(part.amount) || 0),
+                      0,
+                    ),
+                  )}{" "}
+                  · Total do lançamento: {fmt(parseMoney(amount) || 0)}
+                </p>
+              </div>
+            )}
             {recurrence && (
               <p className="col-span-full text-xs text-blue-700">
                 O valor será repetido mensalmente, sem divisão.
@@ -981,8 +1203,8 @@ function EntryForm({
             )}
             {!recurrence && installments > 1 && (
               <p className="col-span-full text-xs text-blue-700">
-                {installments} parcelas de{" "}
-                {fmt((Number(amount.replace(",", ".")) || 0) / installments)}.
+                {installments} parcelas mensais de{" "}
+                {fmt((parseMoney(amount) || 0) / installments)}.
               </p>
             )}
           </div>
@@ -1481,11 +1703,13 @@ function Reports({
     const total = rows.reduce((sum, [, value]) => sum + value, 0);
     if (!total) return "conic-gradient(#e2e8f0 0 100%)";
     let cursor = 0;
-    return `conic-gradient(${rows.map(([name, value]) => {
-      const start = cursor;
-      cursor += (value / total) * 100;
-      return `${categoryColor(entryKind, name)} ${start}% ${cursor}%`;
-    }).join(",")})`;
+    return `conic-gradient(${rows
+      .map(([name, value]) => {
+        const start = cursor;
+        cursor += (value / total) * 100;
+        return `${categoryColor(entryKind, name)} ${start}% ${cursor}%`;
+      })
+      .join(",")})`;
   };
   const pie = categoryPie(expenseCategories, "despesa");
   const incomePie = categoryPie(incomeCategories, "receita");
@@ -1733,17 +1957,32 @@ function Reports({
         </section>
       </div>
       <section className="rounded-2xl bg-white p-5 shadow-sm">
-        <h2 className="font-extrabold text-[#14213d]">Receitas por categoria</h2>
+        <h2 className="font-extrabold text-[#14213d]">
+          Receitas por categoria
+        </h2>
         <div className="mt-5 flex items-center gap-5">
-          <div className="h-36 w-36 shrink-0 rounded-full" style={{ background: incomePie }} />
+          <div
+            className="h-36 w-36 shrink-0 rounded-full"
+            style={{ background: incomePie }}
+          />
           <div className="min-w-0 space-y-2">
             {incomeCategories.slice(0, 5).map(([label, value]) => (
-              <p key={label} className="flex justify-between gap-3 text-xs font-bold">
-                <span className="truncate" style={{ color: categoryColor("receita", label) }}>{label}</span>
+              <p
+                key={label}
+                className="flex justify-between gap-3 text-xs font-bold"
+              >
+                <span
+                  className="truncate"
+                  style={{ color: categoryColor("receita", label) }}
+                >
+                  {label}
+                </span>
                 <span>{fmt(value)}</span>
               </p>
             ))}
-            {!incomeCategories.length && <p className="text-sm text-gray-400">Sem receitas no período.</p>}
+            {!incomeCategories.length && (
+              <p className="text-sm text-gray-400">Sem receitas no período.</p>
+            )}
           </div>
         </div>
       </section>
@@ -2226,7 +2465,11 @@ function App() {
     },
     move = (n: number) =>
       setMonth((v) => new Date(v.getFullYear(), v.getMonth() + n, 1));
-  const save = async (data: Omit<Entry, "id">, scope: "one" | "series") => {
+  const save = async (
+      data: Omit<Entry, "id">,
+      scope: "one" | "series",
+      monthParts?: SameMonthPart[],
+    ) => {
       if (editing) {
         const isWholeSeries = scope === "series" && Boolean(editing.seriesId);
         const updated = entries.map((x) =>
@@ -2254,6 +2497,21 @@ function App() {
         await saveRemoteEntries(changed);
         setEntries(updated);
         setEditing(null);
+        return;
+      }
+      if (monthParts?.length) {
+        const seriesId = id();
+        const created = monthParts.map((part, index) => ({
+          ...data,
+          id: id(),
+          seriesId,
+          amount: parseMoney(part.amount),
+          date: part.date,
+          installments: 1,
+          installment: `${index + 1}/${monthParts.length}`,
+        }));
+        await saveRemoteEntries(created);
+        setEntries((old) => [...created, ...old]);
         return;
       }
       const base = new Date(`${data.date}T12:00:00`),
