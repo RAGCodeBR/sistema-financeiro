@@ -9,6 +9,9 @@ import {
   createRemoteCostCenter,
   updateRemoteCostCenter,
   deleteRemoteCostCenter,
+  uploadEntryAttachment,
+  signedAttachmentUrl,
+  removeEntryAttachments,
   deleteRemoteCategory,
   deleteRemoteEntries,
   deleteRemoteEntrySeries,
@@ -28,6 +31,7 @@ import {
   CreditCard,
   LayoutDashboard,
   Menu,
+  Paperclip,
   Plus,
   ReceiptText,
   Repeat2,
@@ -79,6 +83,7 @@ type Entry = {
   installments: number;
   installment?: string;
   notes?: string;
+  attachments?: string[];
 };
 type Category = {
   id: string;
@@ -104,7 +109,18 @@ type User = {
   role: "master" | "operador";
   units: Unit[];
   canViewReports: boolean;
+  hiddenScreens: string[];
 };
+// Abas que o Master pode ocultar por usuário (a aba "Usuários" é sempre
+// exclusiva do Master, então não entra aqui).
+const toggleableScreens: { id: string; label: string }[] = [
+  { id: "dashboard", label: "Dashboard" },
+  { id: "lancamentos", label: "Lançamentos" },
+  { id: "contas", label: "Contas" },
+  { id: "categorias", label: "Plano de contas" },
+  { id: "contatos", label: "Fornecedores/clientes" },
+  { id: "relatorios", label: "Relatórios" },
+];
 // Paleta fixa de cores para os centros de custo. As classes Tailwind ficam
 // escritas por extenso aqui para que o build as inclua no CSS final.
 type CostCenterColor = { key: string; label: string; swatch: string; color: string; tint: string };
@@ -615,7 +631,7 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
     }
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("full_name, role, allowed_units")
+      .select("full_name, role, allowed_units, hidden_screens")
       .eq("id", data.user.id)
       .single();
     if (profileError || !profile) {
@@ -634,6 +650,7 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
       role: profile.role as User["role"],
       units: access.units,
       canViewReports: access.canViewReports,
+      hiddenScreens: profile.hidden_screens ?? [],
     };
     localStorage.setItem("fincore.user", JSON.stringify(user));
     onLogin(user);
@@ -1324,8 +1341,23 @@ function EntryForm({
       [],
     ),
     [scope, setScope] = useState<"one" | "series">(initialScope ?? "one"),
+    [existingAttachments, setExistingAttachments] = useState<string[]>(editing?.attachments ?? []),
+    [newFiles, setNewFiles] = useState<File[]>([]),
+    [removedAttachments, setRemovedAttachments] = useState<string[]>([]),
     [saving, setSaving] = useState(false),
     [saveError, setSaveError] = useState("");
+  const attachmentName = (path: string) => {
+    const base = path.split("/").pop() || path;
+    return base.replace(/^\d+-/, "");
+  };
+  const openAttachment = async (path: string) => {
+    try {
+      const url = await signedAttachmentUrl(path);
+      window.open(url, "_blank", "noopener");
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Não foi possível abrir o arquivo.");
+    }
+  };
   const available = categories.filter(
     (c) => c.unit === unit && c.kind === kind,
   );
@@ -1413,6 +1445,15 @@ function EntryForm({
     setSaving(true);
     setSaveError("");
     try {
+      const folder = editing?.id ?? (crypto.randomUUID?.() ?? `${Date.now()}`);
+      const uploaded: string[] = [];
+      for (const file of newFiles) {
+        const safe = file.name.replace(/[^\w.\-]+/g, "_");
+        const path = `${unit}/${folder}/${Date.now()}-${safe}`;
+        await uploadEntryAttachment(path, file);
+        uploaded.push(path);
+      }
+      const attachments = [...existingAttachments, ...uploaded];
       await save(
         {
           kind,
@@ -1435,10 +1476,18 @@ function EntryForm({
           status,
           recurrence: recurrence ? "mensal" : "nenhuma",
           installments: sameMonthInstallments ? 1 : installments,
+          attachments,
         },
         scope,
         sameMonthInstallments ? sameMonthPartsState : undefined,
       );
+      if (removedAttachments.length) {
+        try {
+          await removeEntryAttachments(removedAttachments);
+        } catch (cleanupError) {
+          console.error("Fincore: falha ao remover arquivos antigos", cleanupError);
+        }
+      }
       close();
     } catch (error) {
       setSaveError(
@@ -1644,6 +1693,65 @@ function EntryForm({
               className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal"
             />
           </label>
+          <div className="block text-xs font-bold">
+            Anexos (boleto, comprovante, nota)
+            <div className="mt-1.5 space-y-2">
+              {existingAttachments.map((path) => (
+                <div key={path} className="flex items-center gap-2 rounded-xl border bg-gray-50 p-2 text-xs font-normal">
+                  <Paperclip className="h-4 w-4 shrink-0 text-slate-500" />
+                  <button type="button" onClick={() => void openAttachment(path)} className="flex-1 truncate text-left text-blue-700 hover:underline">
+                    {attachmentName(path)}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExistingAttachments((old) => old.filter((item) => item !== path));
+                      setRemovedAttachments((old) => [...old, path]);
+                    }}
+                    className="rounded px-1.5 py-0.5 font-bold text-red-600 hover:bg-red-50"
+                    aria-label={`Remover ${attachmentName(path)}`}
+                  >
+                    Remover
+                  </button>
+                </div>
+              ))}
+              {newFiles.map((file, index) => (
+                <div key={`${file.name}-${index}`} className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-2 text-xs font-normal">
+                  <Paperclip className="h-4 w-4 shrink-0 text-emerald-600" />
+                  <span className="flex-1 truncate">{file.name} <span className="text-emerald-700">(novo)</span></span>
+                  <button
+                    type="button"
+                    onClick={() => setNewFiles((old) => old.filter((_, i) => i !== index))}
+                    className="rounded px-1.5 py-0.5 font-bold text-red-600 hover:bg-red-50"
+                    aria-label={`Remover ${file.name}`}
+                  >
+                    Remover
+                  </button>
+                </div>
+              ))}
+              <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white p-3 text-xs font-bold text-slate-600 hover:border-blue-300 hover:text-blue-700">
+                <Plus className="h-4 w-4" />
+                Anexar arquivo (PDF, PNG ou JPG)
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,application/pdf"
+                  multiple
+                  className="hidden"
+                  onChange={(event) => {
+                    const picked = Array.from(event.target.files ?? []);
+                    const tooBig = picked.find((file) => file.size > 10 * 1024 * 1024);
+                    if (tooBig) {
+                      setSaveError(`O arquivo "${tooBig.name}" passa de 10 MB. Reduza o tamanho e tente novamente.`);
+                    } else {
+                      setNewFiles((old) => [...old, ...picked]);
+                      setSaveError("");
+                    }
+                    event.target.value = "";
+                  }}
+                />
+              </label>
+            </div>
+          </div>
           <div className="grid gap-4 sm:grid-cols-3">
             <label className="text-xs font-bold">
               Valor
@@ -1912,6 +2020,7 @@ function UsersAdmin({
     user: User,
     units: Unit[],
     canViewReports: boolean,
+    hiddenScreens: string[],
   ) => Promise<void>;
 }) {
   const [name, setName] = useState("");
@@ -1925,6 +2034,7 @@ function UsersAdmin({
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editUnits, setEditUnits] = useState<Unit[]>([]);
   const [editCanViewReports, setEditCanViewReports] = useState(false);
+  const [editHiddenScreens, setEditHiddenScreens] = useState<string[]>([]);
   const [savingPermissions, setSavingPermissions] = useState(false);
   const toggleUnit = (unit: Unit) =>
     setSelectedUnits((current) =>
@@ -1952,6 +2062,7 @@ function UsersAdmin({
     setEditingUserId(user.id);
     setEditUnits(user.units);
     setEditCanViewReports(user.canViewReports);
+    setEditHiddenScreens(user.hiddenScreens ?? []);
   };
   const toggleEditUnit = (unit: Unit) =>
     setEditUnits((current) =>
@@ -1959,11 +2070,18 @@ function UsersAdmin({
         ? current.filter((item) => item !== unit)
         : [...current, unit],
     );
+  // Guardamos as abas OCULTAS; o check na tela marca as abas liberadas.
+  const toggleEditScreen = (screenId: string) =>
+    setEditHiddenScreens((current) =>
+      current.includes(screenId)
+        ? current.filter((item) => item !== screenId)
+        : [...current, screenId],
+    );
   const savePermissions = async (user: User) => {
     setSavingPermissions(true);
     setError("");
     try {
-      await updatePermissions(user, editUnits, editCanViewReports);
+      await updatePermissions(user, editUnits, editCanViewReports, editHiddenScreens);
       setEditingUserId(null);
       setMessage(`Permissões de ${user.name} atualizadas.`);
     } catch (permissionError) {
@@ -2186,6 +2304,26 @@ function UsersAdmin({
                       </label>
                     ))}
                   </div>
+                  <p className="mt-4 text-xs font-extrabold text-slate-800">
+                    Abas que {user.name} pode usar
+                  </p>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    {toggleableScreens
+                      .filter((screen) => screen.id !== "relatorios")
+                      .map((screen) => (
+                        <label
+                          key={screen.id}
+                          className="flex cursor-pointer items-center gap-2 rounded-lg border bg-white p-2 text-xs font-bold text-slate-700"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={!editHiddenScreens.includes(screen.id)}
+                            onChange={() => toggleEditScreen(screen.id)}
+                          />
+                          {screen.label}
+                        </label>
+                      ))}
+                  </div>
                   <label className="mt-3 flex cursor-pointer items-center gap-2 text-xs font-bold text-violet-800">
                     <input
                       type="checkbox"
@@ -2239,6 +2377,16 @@ function Entries({
   edit: (x: Entry) => void;
   remove: (x: Entry) => void;
 }) {
+  const attachmentLabel = (path: string) =>
+    (path.split("/").pop() || path).replace(/^\d+-/, "");
+  const openAttachment = async (path: string) => {
+    try {
+      const url = await signedAttachmentUrl(path);
+      window.open(url, "_blank", "noopener");
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Não foi possível abrir o arquivo.");
+    }
+  };
   if (!entries.length)
     return (
       <div className="rounded-xl border border-dashed p-10 text-center text-sm text-gray-400">
@@ -2285,6 +2433,22 @@ function Entries({
                         Observações: {x.notes}
                       </p>
                     )}
+                  </div>
+                )}
+                {x.attachments && x.attachments.length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {x.attachments.map((path) => (
+                      <button
+                        key={path}
+                        type="button"
+                        onClick={() => void openAttachment(path)}
+                        className="inline-flex max-w-[180px] items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-bold text-blue-700 hover:bg-blue-100"
+                        title={attachmentLabel(path)}
+                      >
+                        <Paperclip className="h-3 w-3 shrink-0" />
+                        <span className="truncate">{attachmentLabel(path)}</span>
+                      </button>
+                    ))}
                   </div>
                 )}
               </div>
@@ -2562,6 +2726,11 @@ function Reports({
   const [category, setCategory] = useState("Todos");
   const [kind, setKind] = useState<Kind | "todos">("todos");
   const [counterparty, setCounterparty] = useState("Todos");
+  const [drill, setDrill] = useState<{ title: string; items: Entry[] } | null>(null);
+  const openDrill = (title: string, items: Entry[]) => {
+    if (!items.length) return;
+    setDrill({ title, items: [...items].sort((a, b) => b.date.localeCompare(a.date)) });
+  };
   const counterpartyOptions = contacts
     .filter((contact) =>
       (unit === "Todos" || contact.unit === unit) &&
@@ -2590,6 +2759,14 @@ function Reports({
   const expense = total("despesa");
   const pendingPay = total("despesa", "previsto");
   const pendingReceive = total("receita", "previsto");
+  const pick = (test: (entry: Entry) => boolean) => filtered.filter(test);
+  const entriesByCategory = (item: { kind: Kind; unit: Unit; name: string }) =>
+    pick(
+      (entry) =>
+        entry.kind === item.kind &&
+        entry.unit === item.unit &&
+        (entry.category || "Sem categoria") === item.name,
+    );
   const dateLabel = (value: string) =>
     new Date(`${value}T12:00:00`).toLocaleDateString("pt-BR");
   const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
@@ -2804,29 +2981,33 @@ function Reports({
         </div>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {[
-          ["Receitas no período", income, "text-emerald-600"],
-          ["Despesas no período", expense, "text-red-600"],
+        {([
+          ["Receitas no período", income, "text-emerald-600", pick((e) => e.kind === "receita")],
+          ["Despesas no período", expense, "text-red-600", pick((e) => e.kind === "despesa")],
           [
             "Resultado projetado",
             income - expense,
             income - expense >= 0 ? "text-blue-700" : "text-red-600",
+            filtered,
           ],
-          ["Resultado realizado", realizedIncome - realizedExpense, realizedIncome >= realizedExpense ? "text-blue-700" : "text-red-600"],
-          ["A pagar", pendingPay, "text-orange-600"],
-          ["A receber", pendingReceive, "text-blue-700"],
-          ["Pagar vencido", overduePay, "text-red-600"],
-          ["Receber vencido", overdueReceive, "text-orange-600"],
-        ].map(([label, value, color]) => (
-          <article
-            key={label as string}
-            className="rounded-2xl bg-white p-5 shadow-sm"
+          ["Resultado realizado", realizedIncome - realizedExpense, realizedIncome >= realizedExpense ? "text-blue-700" : "text-red-600", pick((e) => e.status === "realizado")],
+          ["A pagar", pendingPay, "text-orange-600", pick((e) => e.kind === "despesa" && e.status === "previsto")],
+          ["A receber", pendingReceive, "text-blue-700", pick((e) => e.kind === "receita" && e.status === "previsto")],
+          ["Pagar vencido", overduePay, "text-red-600", pick((e) => e.kind === "despesa" && e.status === "previsto" && e.date < todayKey)],
+          ["Receber vencido", overdueReceive, "text-orange-600", pick((e) => e.kind === "receita" && e.status === "previsto" && e.date < todayKey)],
+        ] as [string, number, string, Entry[]][]).map(([label, value, color, items]) => (
+          <button
+            key={label}
+            type="button"
+            onClick={() => openDrill(label, items)}
+            className="rounded-2xl bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
           >
             <p className="text-xs font-bold text-gray-400">{label}</p>
             <p className={`mt-2 text-2xl font-extrabold ${color}`}>
-              {fmt(value as number)}
+              {fmt(value)}
             </p>
-          </article>
+            <p className="mt-1 text-[11px] font-semibold text-blue-700">{items.length} lançamento(s) →</p>
+          </button>
         ))}
       </div>
       <section className="rounded-2xl bg-white p-5 shadow-sm">
@@ -2851,10 +3032,10 @@ function Reports({
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={(value: number) => new Intl.NumberFormat("pt-BR", { notation: "compact" }).format(value)} />
                   <Tooltip formatter={(value, name) => [fmt(Number(value)), String(name)]} contentStyle={{ borderRadius: 12, borderColor: "#e2e8f0" }} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Bar dataKey="Receitas recebidas" stackId="receita" fill="#059669" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="Receitas previstas" stackId="receita" fill="#6ee7b7" radius={[3, 3, 0, 0]} />
-                  <Bar dataKey="Despesas pagas" stackId="despesa" fill="#dc2626" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="Despesas previstas" stackId="despesa" fill="#fca5a5" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="Receitas recebidas" stackId="receita" fill="#059669" radius={[0, 0, 0, 0]} cursor="pointer" onClick={(data: any) => { const b = data?.payload ?? data; openDrill(`Receitas recebidas · ${b.label}`, pick((e) => e.kind === "receita" && e.status === "realizado" && e.date >= b.start && e.date <= b.end)); }} />
+                  <Bar dataKey="Receitas previstas" stackId="receita" fill="#6ee7b7" radius={[3, 3, 0, 0]} cursor="pointer" onClick={(data: any) => { const b = data?.payload ?? data; openDrill(`Receitas previstas · ${b.label}`, pick((e) => e.kind === "receita" && e.status === "previsto" && e.date >= b.start && e.date <= b.end)); }} />
+                  <Bar dataKey="Despesas pagas" stackId="despesa" fill="#dc2626" radius={[0, 0, 0, 0]} cursor="pointer" onClick={(data: any) => { const b = data?.payload ?? data; openDrill(`Despesas pagas · ${b.label}`, pick((e) => e.kind === "despesa" && e.status === "realizado" && e.date >= b.start && e.date <= b.end)); }} />
+                  <Bar dataKey="Despesas previstas" stackId="despesa" fill="#fca5a5" radius={[3, 3, 0, 0]} cursor="pointer" onClick={(data: any) => { const b = data?.payload ?? data; openDrill(`Despesas previstas · ${b.label}`, pick((e) => e.kind === "despesa" && e.status === "previsto" && e.date >= b.start && e.date <= b.end)); }} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -2874,7 +3055,7 @@ function Reports({
                 <div className="h-56 w-full shrink-0 sm:w-56">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                      <Pie data={rows} dataKey="total" nameKey="name" innerRadius={58} outerRadius={92} paddingAngle={2} stroke="none">
+                      <Pie data={rows} dataKey="total" nameKey="name" innerRadius={58} outerRadius={92} paddingAngle={2} stroke="none" cursor="pointer" onClick={(data: any) => { const it = data?.payload ?? data; openDrill(`${it.name} · ${it.unit}`, entriesByCategory(it)); }}>
                         {rows.map((item) => <Cell key={item.key} fill={item.color} />)}
                       </Pie>
                       <Tooltip formatter={(value, _name, item) => [fmt(Number(value)), `${item.payload.name} · ${item.payload.unit}`]} contentStyle={{ borderRadius: 12, borderColor: "#e2e8f0" }} />
@@ -2883,12 +3064,17 @@ function Reports({
                 </div>
                 <div className="min-w-0 flex-1 space-y-2">
                   {rows.map((item) => (
-                    <div key={item.key} className="flex items-center gap-2 text-xs">
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => openDrill(`${item.name} · ${item.unit}`, entriesByCategory(item))}
+                      className="flex w-full items-center gap-2 rounded-lg px-1 py-0.5 text-left text-xs hover:bg-slate-50"
+                    >
                       <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: item.color }} />
                       <span className="min-w-0 flex-1 truncate text-slate-700" title={`${item.name} · ${item.unit}`}>{item.name} <span className="text-slate-400">· {item.unit}</span></span>
                       <b className="text-slate-800">{totalValue ? Math.round(item.total / totalValue * 100) : 0}%</b>
                       <span className="w-24 text-right font-bold text-slate-700">{fmt(item.total)}</span>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -2907,7 +3093,11 @@ function Reports({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {categoryDetails.map((item) => (
-                  <tr key={item.key} className="hover:bg-slate-50">
+                  <tr
+                    key={item.key}
+                    onClick={() => openDrill(`${item.name} · ${item.unit}`, entriesByCategory(item))}
+                    className="cursor-pointer hover:bg-slate-50"
+                  >
                     <td className="p-3 font-bold text-slate-800"><span className="mr-2 inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />{item.name}</td>
                     <td className="p-3 text-slate-600">{item.unit}</td>
                     <td className="p-3 text-slate-600">{item.kind === "despesa" ? "Despesa" : "Receita"}</td>
@@ -2937,7 +3127,7 @@ function Reports({
                       <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={(value: number) => new Intl.NumberFormat("pt-BR", { notation: "compact" }).format(value)} />
                       <YAxis type="category" dataKey="label" width={155} tick={{ fontSize: 10 }} />
                       <Tooltip formatter={(value) => fmt(Number(value))} contentStyle={{ borderRadius: 12, borderColor: "#e2e8f0" }} />
-                      <Bar dataKey="total" name="Despesa" radius={[0, 5, 5, 0]}>
+                      <Bar dataKey="total" name="Despesa" radius={[0, 5, 5, 0]} cursor="pointer" onClick={(data: any) => { const it = data?.payload ?? data; openDrill(`${it.name} · ${it.unit}`, entriesByCategory(it)); }}>
                         {expenseDetails.slice(0, 8).reverse().map((item) => <Cell key={item.key} fill={item.color} />)}
                       </Bar>
                     </BarChart>
@@ -2946,10 +3136,15 @@ function Reports({
               </div>
               <div className="mt-5 divide-y divide-slate-100 border-t border-slate-100">
                 {expenseDetails.slice(0, 8).map((item) => (
-                  <div key={item.key} className="flex flex-wrap items-center justify-between gap-2 py-3 text-xs">
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => openDrill(`${item.name} · ${item.unit}`, entriesByCategory(item))}
+                    className="flex w-full flex-wrap items-center justify-between gap-2 py-3 text-left text-xs hover:bg-slate-50"
+                  >
                     <span className="font-bold text-slate-800"><span className="mr-2 inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />{item.name} <span className="font-normal text-slate-400">· {item.unit}</span></span>
                     <span className="text-slate-500">{item.count} lançamentos · Pago {fmt(item.realized)} · A pagar {fmt(item.pending)}</span>
-                  </div>
+                  </button>
                 ))}
               </div>
             </>
@@ -2960,14 +3155,19 @@ function Reports({
           <p className="mt-1 text-xs text-slate-400">Lançamentos de maior valor, inclusive parcelas e recorrências.</p>
           <div className="mt-4 divide-y divide-slate-100">
             {largestExpenses.map((entry) => (
-              <div key={entry.id} className="flex items-center justify-between gap-3 py-3">
+              <button
+                key={entry.id}
+                type="button"
+                onClick={() => openDrill(entry.description || "Lançamento", [entry])}
+                className="flex w-full items-center justify-between gap-3 py-3 text-left hover:bg-slate-50"
+              >
                 <div className="min-w-0">
                   <p className="truncate text-sm font-bold text-slate-800" title={entry.description}>{entry.description}</p>
                   <p className="truncate text-xs text-slate-400">{entry.category} · {entry.unit} · {dateLabel(entry.date)}</p>
                   <p className="text-[11px] text-slate-400">{entry.status === "realizado" ? "Pago" : entry.date < todayKey ? "Vencido" : "A pagar"}{entry.installment ? ` · Parcela ${entry.installment}` : entry.recurrence === "mensal" ? " · Recorrente" : ""}</p>
                 </div>
                 <b className="shrink-0 text-sm text-red-600">{fmt(entry.amount)}</b>
-              </div>
+              </button>
             ))}
             {!largestExpenses.length && <p className="py-5 text-sm text-slate-400">Sem despesas no período.</p>}
           </div>
@@ -2983,7 +3183,12 @@ function Reports({
         </h2>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {accountRows.map((item) => (
-            <div key={`${item.unit}:${item.name}`} className="rounded-xl border p-4">
+            <button
+              key={`${item.unit}:${item.name}`}
+              type="button"
+              onClick={() => openDrill(`${item.name} · ${item.unit}`, pick((e) => e.account === item.name && e.unit === item.unit && e.status === "realizado"))}
+              className="rounded-xl border p-4 text-left transition hover:border-blue-300 hover:shadow-sm"
+            >
               <p className="font-bold text-slate-800">{item.name}</p>
               <p className="text-xs text-gray-400">{item.unit}</p>
               <p
@@ -2991,10 +3196,84 @@ function Reports({
               >
                 {fmt(item.balance)}
               </p>
-            </div>
+            </button>
           ))}
         </div>
       </section>
+      {drill && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" role="presentation" onClick={() => setDrill(null)}>
+          <section
+            role="dialog"
+            aria-modal="true"
+            className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header className="flex items-start justify-between border-b px-6 py-4">
+              <div className="min-w-0">
+                <h2 className="truncate font-extrabold text-[#14213d]">{drill.title}</h2>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  {drill.items.length} lançamento(s) · {dateLabel(from)} a {dateLabel(to)}
+                </p>
+              </div>
+              <button type="button" onClick={() => setDrill(null)} aria-label="Fechar"><X className="h-5 w-5" /></button>
+            </header>
+            <div className="divide-y divide-slate-100 overflow-y-auto px-6">
+              {drill.items.map((entry) => (
+                <div key={entry.id} className="flex items-start justify-between gap-3 py-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-bold text-slate-800">
+                      {entry.description}
+                      {entry.installment && <span className="font-normal text-slate-400"> ({entry.installment})</span>}
+                    </p>
+                    <p className="truncate text-[11px] text-slate-400">
+                      {entry.unit} · {entry.category} · {dateLabel(entry.date)}
+                    </p>
+                    {entry.beneficiary?.trim() && (
+                      <p className="truncate text-[11px] text-slate-500">
+                        {entry.kind === "despesa" ? "Fornecedor" : "Cliente"}: {entry.beneficiary.trim()}
+                      </p>
+                    )}
+                    {entry.attachments && entry.attachments.length > 0 && (
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        {entry.attachments.map((path) => (
+                          <button
+                            key={path}
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                const url = await signedAttachmentUrl(path);
+                                window.open(url, "_blank", "noopener");
+                              } catch (error) {
+                                window.alert(error instanceof Error ? error.message : "Não foi possível abrir o arquivo.");
+                              }
+                            }}
+                            className="inline-flex max-w-[160px] items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-bold text-blue-700 hover:bg-blue-100"
+                          >
+                            <Paperclip className="h-3 w-3 shrink-0" />
+                            <span className="truncate">{(path.split("/").pop() || path).replace(/^\d+-/, "")}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className={`text-sm font-extrabold ${entry.kind === "receita" ? "text-emerald-600" : "text-red-600"}`}>
+                      {entry.kind === "receita" ? "+" : "-"}{fmt(entry.amount)}
+                    </p>
+                    <p className="text-[10px] font-bold uppercase text-slate-400">
+                      {entry.status === "realizado" ? (entry.kind === "despesa" ? "Pago" : "Recebido") : entry.date < todayKey ? "Vencido" : entry.kind === "despesa" ? "A pagar" : "A receber"}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <footer className="flex items-center justify-between border-t bg-gray-50 px-6 py-3 text-sm font-bold text-slate-700">
+              <span>Total</span>
+              <span>{fmt(drill.items.reduce((sum, entry) => sum + entry.amount, 0))}</span>
+            </footer>
+          </section>
+        </div>
+      )}
     </section>
   );
 }
@@ -3069,7 +3348,7 @@ function App() {
       }
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
-        .select("full_name, email, role, allowed_units")
+        .select("full_name, email, role, allowed_units, hidden_screens")
         .eq("id", authUser.id)
         .single();
       if (!active) return;
@@ -3087,6 +3366,7 @@ function App() {
         role: profile.role as User["role"],
         units: access.units,
         canViewReports: access.canViewReports,
+        hiddenScreens: profile.hidden_screens ?? [],
       });
       setAuthReady(true);
     })();
@@ -3237,10 +3517,26 @@ function App() {
       window.clearInterval(interval);
     };
   }, [currentUser?.id, dataReady, dataError]);
+  const screenAllowed = (id: string) => {
+    if (!currentUser) return true;
+    if (currentUser.role === "master") return true;
+    if (id === "usuarios") return false;
+    if (id === "relatorios" && !currentUser.canViewReports) return false;
+    return !(currentUser.hiddenScreens ?? []).includes(id);
+  };
+  // Se o usuário estiver numa aba que foi removida dele, leva para a
+  // primeira aba liberada.
+  useEffect(() => {
+    if (!currentUser || currentUser.role === "master") return;
+    if (screenAllowed(screen)) return;
+    const fallback = ["dashboard", "lancamentos", "contas", "categorias", "contatos", "relatorios"].find(screenAllowed);
+    if (fallback && fallback !== screen) setScreen(fallback);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id, currentUser?.hiddenScreens, currentUser?.canViewReports, screen]);
   const loadUsers = async () => {
     const { data } = await supabase
       .from("profiles")
-      .select("id, full_name, email, role, allowed_units")
+      .select("id, full_name, email, role, allowed_units, hidden_screens")
       .order("created_at");
     if (!data) return;
     setUsers(
@@ -3255,6 +3551,7 @@ function App() {
           role: profile.role as User["role"],
           units: access.units,
           canViewReports: access.canViewReports,
+          hiddenScreens: profile.hidden_screens ?? [],
         };
       }),
     );
@@ -3398,6 +3695,7 @@ function App() {
     user: User,
     allowedUnits: Unit[],
     canViewReports: boolean,
+    hiddenScreens: string[],
   ) => {
     const { error } = await supabase
       .from("profiles")
@@ -3406,6 +3704,7 @@ function App() {
           ...allowedUnits,
           ...(canViewReports ? [reportsAccessFlag] : []),
         ],
+        hidden_screens: hiddenScreens,
       })
       .eq("id", user.id);
     if (error) throw error;
@@ -3789,13 +4088,7 @@ function App() {
         </div>
         <nav className="flex-1 space-y-1 p-3">
           {nav
-            .filter(
-              (x) =>
-                (currentUser.role === "master" || x.id !== "usuarios") &&
-                (x.id !== "relatorios" ||
-                  currentUser.role === "master" ||
-                  currentUser.canViewReports),
-            )
+            .filter((x) => screenAllowed(x.id))
             .map((x) => (
               <button
                 key={x.id}

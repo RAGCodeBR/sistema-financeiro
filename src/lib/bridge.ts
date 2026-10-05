@@ -68,7 +68,34 @@ function entryRow(entry: any) {
     installments: entry.installments || 1,
     installment: entry.installment || null,
     notes: entry.notes || "",
+    // Only sent when present, so entry saving keeps working on a database
+    // whose attachments migration has not been applied yet.
+    ...(entry.attachments !== undefined ? { attachments: entry.attachments } : {}),
   };
+}
+
+const attachmentsBucket = "attachments";
+
+export async function uploadEntryAttachment(path: string, file: File) {
+  const { error } = await supabase.storage
+    .from(attachmentsBucket)
+    .upload(path, file, { upsert: true, contentType: file.type || undefined });
+  if (error) throw new Error(error.message || "Não foi possível enviar o arquivo.");
+  return path;
+}
+
+export async function signedAttachmentUrl(path: string) {
+  const { data, error } = await supabase.storage
+    .from(attachmentsBucket)
+    .createSignedUrl(path, 600);
+  if (error || !data?.signedUrl)
+    throw new Error(error?.message || "Não foi possível abrir o arquivo.");
+  return data.signedUrl;
+}
+
+export async function removeEntryAttachments(paths: string[]) {
+  if (!paths.length) return;
+  await supabase.storage.from(attachmentsBucket).remove(paths);
 }
 
 export async function saveRemoteEntries(entries: any[]) {
