@@ -13,6 +13,7 @@ import {
   saveRemoteEntries,
 } from "../lib/bridge";
 import {
+  AlertTriangle,
   Bell,
   BarChart3,
   CalendarClock,
@@ -2239,9 +2240,11 @@ function App() {
       })),
     ),
     [filter, setFilter] = useState<Unit | "Todos">("Todos"),
-    [entryFilter, setEntryFilter] = useState<"todos" | "pagar" | "receber">(
-      "todos",
-    ),
+    [entryFilter, setEntryFilter] = useState<
+      "todos" | "pagar" | "receber" | "atrasadas"
+    >("todos"),
+    [overdueKind, setOverdueKind] = useState<Kind | "todos">("todos"),
+    [notificationsOpen, setNotificationsOpen] = useState(false),
     [menu, setMenu] = useState(false),
     [users, setUsers] = useState<User[]>([]),
     [dataReady, setDataReady] = useState(false),
@@ -2615,18 +2618,20 @@ function App() {
     };
   const key = month.toISOString().slice(0, 7),
     today = new Date().toISOString().slice(0, 10),
-    pending = entries.filter(
-      (x) =>
-        x.status === "previsto" &&
-        x.date <= today &&
-        (filter === "Todos" || x.unit === filter),
-    ),
     visible = entries
       .filter(
         (x) =>
           currentUser.role === "master" || currentUser.units.includes(x.unit),
       )
       .filter((x) => filter === "Todos" || x.unit === filter),
+    pending = visible.filter(
+      (x) => x.status === "previsto" && x.date <= today,
+    ),
+    overdue = visible.filter(
+      (x) => x.status === "previsto" && x.date < today,
+    ),
+    overduePay = overdue.filter((x) => x.kind === "despesa"),
+    overdueReceive = overdue.filter((x) => x.kind === "receita"),
     current = visible.filter((x) => x.date.startsWith(key)),
     sum = (k: Kind, status?: Entry["status"]) =>
       current
@@ -2639,7 +2644,23 @@ function App() {
       receive: sum("receita", "previsto"),
     },
     move = (n: number) =>
-      setMonth((v) => new Date(v.getFullYear(), v.getMonth() + n, 1));
+      setMonth((v) => new Date(v.getFullYear(), v.getMonth() + n, 1)),
+    openOverdue = (kind: Kind | "todos" = "todos") => {
+      setOverdueKind(kind);
+      setEntryFilter("atrasadas");
+      setNotificationsOpen(false);
+      setScreen("lancamentos");
+    },
+    openNotification = (entry: Entry) => {
+      if (entry.date < today) {
+        openOverdue(entry.kind);
+        return;
+      }
+      setEntryFilter(entry.kind === "despesa" ? "pagar" : "receber");
+      setMonth(new Date(`${entry.date}T12:00:00`));
+      setNotificationsOpen(false);
+      setScreen("lancamentos");
+    };
   const save = async (
       data: Omit<Entry, "id">,
       scope: "one" | "series",
@@ -2773,7 +2794,7 @@ function App() {
       setModal(kind);
       setScreen("lancamentos");
     },
-    list = current.filter(
+    list = (entryFilter === "atrasadas" ? overdue : current).filter(
       (x) =>
         entryFilter === "todos" ||
         (entryFilter === "pagar" &&
@@ -2781,7 +2802,9 @@ function App() {
           x.status === "previsto") ||
         (entryFilter === "receber" &&
           x.kind === "receita" &&
-          x.status === "previsto"),
+          x.status === "previsto") ||
+        (entryFilter === "atrasadas" &&
+          (overdueKind === "todos" || x.kind === overdueKind)),
     ),
     byUnit = allowedUnits.map((u) => ({
       ...u,
@@ -2897,11 +2920,90 @@ function App() {
               </div>
             )}
             <div className="relative">
-              <Bell className="m-2 h-5 w-5 text-gray-400" />
+              <button
+                type="button"
+                onClick={() => setNotificationsOpen((open) => !open)}
+                aria-label={`Notificações${pending.length ? `: ${pending.length} pendências` : ""}`}
+                aria-expanded={notificationsOpen}
+                className="relative rounded-lg p-2 text-gray-400 transition hover:bg-slate-100 hover:text-[#14213d]"
+              >
+                <Bell className="h-5 w-5" />
+              </button>
               {pending.length > 0 && (
-                <span className="absolute right-0 top-0 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[9px] font-bold text-white">
+                <span className="pointer-events-none absolute right-0 top-0 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[9px] font-bold text-white">
                   {pending.length}
                 </span>
+              )}
+              {notificationsOpen && (
+                <section className="absolute right-0 z-40 mt-2 w-[min(24rem,calc(100vw-2.5rem))] overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-xl">
+                  <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+                    <div>
+                      <h2 className="text-sm font-extrabold text-[#14213d]">
+                        Pendências financeiras
+                      </h2>
+                      <p className="text-[11px] text-slate-400">
+                        Vencidas e com vencimento hoje
+                      </p>
+                    </div>
+                    {overdue.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => openOverdue("todos")}
+                        className="text-xs font-bold text-blue-700 hover:text-blue-900"
+                      >
+                        Ver atrasadas
+                      </button>
+                    )}
+                  </div>
+                  {pending.length ? (
+                    <div className="max-h-80 overflow-y-auto p-2">
+                      {pending
+                        .slice()
+                        .sort((a, b) => a.date.localeCompare(b.date))
+                        .slice(0, 8)
+                        .map((entry) => {
+                          const isOverdue = entry.date < today;
+                          return (
+                            <button
+                              key={entry.id}
+                              type="button"
+                              onClick={() => openNotification(entry)}
+                              className="flex w-full items-center gap-3 rounded-xl p-3 text-left hover:bg-slate-50"
+                            >
+                              <span
+                                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${isOverdue ? "bg-red-50 text-red-600" : "bg-amber-50 text-amber-600"}`}
+                              >
+                                <AlertTriangle className="h-4 w-4" />
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <b className="block truncate text-xs text-slate-800">
+                                  {entry.description}
+                                </b>
+                                <span className="text-[11px] text-slate-400">
+                                  {isOverdue
+                                    ? `Vencida em ${new Date(`${entry.date}T12:00:00`).toLocaleDateString("pt-BR")}`
+                                    : "Vence hoje"}
+                                  {" · "}
+                                  {entry.kind === "despesa"
+                                    ? "Conta a pagar"
+                                    : "Conta a receber"}
+                                </span>
+                              </span>
+                              <b
+                                className={`text-xs ${entry.kind === "despesa" ? "text-red-600" : "text-emerald-600"}`}
+                              >
+                                {fmt(entry.amount)}
+                              </b>
+                            </button>
+                          );
+                        })}
+                    </div>
+                  ) : (
+                    <p className="p-5 text-center text-xs font-medium text-slate-400">
+                      Nenhuma pendência para hoje.
+                    </p>
+                  )}
+                </section>
               )}
             </div>
           </div>
@@ -2979,6 +3081,53 @@ function App() {
                     </article>
                   );
                 })}
+              </section>
+              <section className="mt-5 rounded-2xl border border-red-100 bg-white p-5 shadow-sm">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h2 className="font-extrabold text-[#14213d]">
+                      Contas em atraso
+                    </h2>
+                    <p className="text-xs text-gray-400">
+                      Lançamentos previstos cujo vencimento já passou.
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-extrabold text-red-600">
+                    {overdue.length} {overdue.length === 1 ? "pendência" : "pendências"}
+                  </span>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => openOverdue("despesa")}
+                    className="rounded-xl border border-red-100 bg-red-50 p-4 text-left transition hover:border-red-200 hover:bg-red-100"
+                  >
+                    <span className="text-xs font-bold text-red-600">
+                      Contas a pagar atrasadas
+                    </span>
+                    <b className="mt-1 block text-xl font-extrabold text-[#14213d]">
+                      {fmt(overduePay.reduce((sum, entry) => sum + entry.amount, 0))}
+                    </b>
+                    <span className="mt-1 block text-[11px] font-medium text-red-700">
+                      {overduePay.length} {overduePay.length === 1 ? "lançamento vencido" : "lançamentos vencidos"} · Ver lançamentos
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openOverdue("receita")}
+                    className="rounded-xl border border-orange-100 bg-orange-50 p-4 text-left transition hover:border-orange-200 hover:bg-orange-100"
+                  >
+                    <span className="text-xs font-bold text-orange-600">
+                      Contas a receber atrasadas
+                    </span>
+                    <b className="mt-1 block text-xl font-extrabold text-[#14213d]">
+                      {fmt(overdueReceive.reduce((sum, entry) => sum + entry.amount, 0))}
+                    </b>
+                    <span className="mt-1 block text-[11px] font-medium text-orange-700">
+                      {overdueReceive.length} {overdueReceive.length === 1 ? "lançamento vencido" : "lançamentos vencidos"} · Ver lançamentos
+                    </span>
+                  </button>
+                </div>
               </section>
               <section className="mt-5 rounded-2xl bg-white p-5 shadow-sm">
                 <div className="mb-4 flex items-center justify-between">
@@ -3313,10 +3462,18 @@ function App() {
                       ? "Contas a pagar"
                       : entryFilter === "receber"
                         ? "Contas a receber"
+                        : entryFilter === "atrasadas"
+                          ? overdueKind === "despesa"
+                            ? "Contas a pagar atrasadas"
+                            : overdueKind === "receita"
+                              ? "Contas a receber atrasadas"
+                              : "Contas atrasadas"
                         : "Todos os lançamentos"}
                   </h2>
                   <p className="text-xs text-gray-400">
-                    Consulte, filtre e dê baixa nos lançamentos do mês.
+                    {entryFilter === "atrasadas"
+                      ? "Pendências vencidas de todos os meses."
+                      : "Consulte, filtre e dê baixa nos lançamentos do mês."}
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -3343,18 +3500,42 @@ function App() {
                       ["todos", "Todos"],
                       ["pagar", "Contas a pagar"],
                       ["receber", "Contas a receber"],
+                      ["atrasadas", "Atrasadas"],
                     ].map(([value, label]) => (
                       <button
                         key={value}
-                        onClick={() =>
-                          setEntryFilter(value as "todos" | "pagar" | "receber")
-                        }
+                        onClick={() => {
+                          setEntryFilter(
+                            value as "todos" | "pagar" | "receber" | "atrasadas",
+                          );
+                          if (value !== "atrasadas") setOverdueKind("todos");
+                        }}
                         className={`rounded-full px-3 py-2 text-xs font-bold ${entryFilter === value ? "bg-[#14213d] text-white" : "border bg-white text-gray-600 hover:bg-gray-50"}`}
                       >
                         {label}
                       </button>
                     ))}
                   </div>
+                  {entryFilter === "atrasadas" && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
+                        Tipo:
+                      </span>
+                      {[
+                        ["todos", "Todas"],
+                        ["despesa", "A pagar"],
+                        ["receita", "A receber"],
+                      ].map(([value, label]) => (
+                        <button
+                          key={value}
+                          onClick={() => setOverdueKind(value as Kind | "todos")}
+                          className={`rounded-full px-2.5 py-1.5 text-[11px] font-bold ${overdueKind === value ? "bg-red-600 text-white" : "border bg-white text-gray-600"}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
                       Centro de custo:
