@@ -55,6 +55,11 @@ function entryRow(entry: any) {
     category: entry.category,
     description: entry.description,
     beneficiary: entry.beneficiary || "",
+    // Do not send the new column to an older database before its migration is
+    // applied. An explicit null is still sent when a contact is unlinked.
+    ...(entry.counterpartyId !== undefined
+      ? { counterparty_id: uuid(entry.counterpartyId) ? entry.counterpartyId : null }
+      : {}),
     pix: entry.pix || "",
     amount: entry.amount,
     date: entry.date,
@@ -77,6 +82,31 @@ export async function saveRemoteEntries(entries: any[]) {
 export async function saveRemoteCategory(category: any) {
   if (!uuid(category.id)) return;
   await withFreshSession(() => supabase.from("categories").upsert(category));
+}
+
+export async function saveRemoteCounterparty(counterparty: any) {
+  if (!uuid(counterparty.id)) throw new Error("Cadastro inválido.");
+  return withFreshSession(() =>
+    supabase.from("counterparties").upsert({
+      id: counterparty.id,
+      kind: counterparty.kind,
+      unit: counterparty.unit,
+      name: counterparty.name,
+      provides: counterparty.provides || "",
+      archived: counterparty.archived || false,
+    }).select("id, kind, unit, name, provides, archived").single(),
+  );
+}
+
+export async function setRemoteCounterpartyArchived(id: string, archived: boolean) {
+  if (!uuid(id)) throw new Error("Cadastro inválido.");
+  return withFreshSession(() =>
+    supabase.from("counterparties")
+      .update({ archived })
+      .eq("id", id)
+      .select("id, kind, unit, name, provides, archived")
+      .single(),
+  );
 }
 
 export async function deleteRemoteEntries(ids: string[]) {

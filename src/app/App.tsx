@@ -10,12 +10,15 @@ import {
   deleteRemoteEntries,
   deleteRemoteEntrySeries,
   saveRemoteCategory,
+  saveRemoteCounterparty,
   saveRemoteEntries,
+  setRemoteCounterpartyArchived,
 } from "../lib/bridge";
 import {
   AlertTriangle,
   Bell,
   BarChart3,
+  Building2,
   CalendarClock,
   ChevronLeft,
   ChevronRight,
@@ -56,6 +59,7 @@ type Entry = {
   category: string;
   description: string;
   beneficiary: string;
+  counterpartyId?: string | null;
   pix: string;
   amount: number;
   date: string;
@@ -74,6 +78,14 @@ type Category = {
   color?: string;
 };
 type Account = { id: string; name: string; unit: Unit };
+type Counterparty = {
+  id: string;
+  kind: Kind;
+  unit: Unit;
+  name: string;
+  provides: string;
+  archived?: boolean;
+};
 type User = {
   id: string;
   name: string;
@@ -216,6 +228,29 @@ const counterpartyKey = (kind: Kind, name: string) =>
     kind,
     name.trim().replace(/\s+/g, " ").toLocaleLowerCase("pt-BR"),
   ]);
+const contactIdentity = (kind: Kind, unit: Unit, name: string) =>
+  `${unit}:${counterpartyKey(kind, name)}`;
+const contactsWithLegacyEntries = (saved: Counterparty[], entries: Entry[]) => {
+  const byIdentity = new Map<string, Counterparty>();
+  saved.forEach((contact) =>
+    byIdentity.set(contactIdentity(contact.kind, contact.unit, contact.name), contact),
+  );
+  entries.forEach((entry) => {
+    if (!entry.beneficiary?.trim()) return;
+    const key = contactIdentity(entry.kind, entry.unit, entry.beneficiary);
+    if (!byIdentity.has(key))
+      byIdentity.set(key, {
+        id: `legacy:${key}`,
+        kind: entry.kind,
+        unit: entry.unit,
+        name: entry.beneficiary.trim(),
+        provides: "",
+      });
+  });
+  return [...byIdentity.values()].sort((a, b) =>
+    a.name.localeCompare(b.name, "pt-BR"),
+  );
+};
 const parseMoney = (value: string) => {
   const raw = value.replace(/R\$\s?/gi, "").replace(/\s/g, "");
   if (!raw) return NaN;
@@ -830,9 +865,253 @@ function NewCategory({
     </div>
   );
 }
+function ContactsScreen({
+  contacts,
+  allowedUnits,
+  tableReady,
+  save,
+  archive,
+}: {
+  contacts: Counterparty[];
+  allowedUnits: typeof units;
+  tableReady: boolean;
+  save: (contact: Counterparty) => Promise<void>;
+  archive: (contact: Counterparty, archived: boolean) => Promise<void>;
+}) {
+  const [kind, setKind] = useState<Kind>("despesa");
+  const [editing, setEditing] = useState<Counterparty | null>(null);
+  const [unit, setUnit] = useState<Unit>(allowedUnits[0]?.name ?? "Consultoria");
+  const [name, setName] = useState("");
+  const [provides, setProvides] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [archiveBusy, setArchiveBusy] = useState(false);
+  const [confirmArchive, setConfirmArchive] = useState<Counterparty | null>(null);
+  const [error, setError] = useState("");
+  const relevant = contacts.filter(
+    (contact) =>
+      contact.kind === kind &&
+      !contact.archived &&
+      allowedUnits.some((allowed) => allowed.name === contact.unit),
+  );
+  const archivedContacts = contacts.filter(
+    (contact) =>
+      contact.kind === kind &&
+      contact.archived &&
+      allowedUnits.some((allowed) => allowed.name === contact.unit),
+  );
+  const title = kind === "despesa" ? "Fornecedores" : "Clientes / pagadores";
+  const reset = () => {
+    setEditing(null);
+    setName("");
+    setProvides("");
+    setError("");
+  };
+  const selectKind = (nextKind: Kind) => {
+    setKind(nextKind);
+    reset();
+    setUnit(allowedUnits[0]?.name ?? "Consultoria");
+  };
+  const changeArchive = async (contact: Counterparty, archived: boolean) => {
+    setArchiveBusy(true);
+    setError("");
+    try {
+      await archive(contact, archived);
+      if (editing?.id === contact.id) reset();
+      setConfirmArchive(null);
+    } catch (archiveError) {
+      setError(archiveError instanceof Error ? archiveError.message : "Não foi possível alterar o cadastro.");
+      setConfirmArchive(null);
+    } finally {
+      setArchiveBusy(false);
+    }
+  };
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!tableReady) return;
+    const cleanName = name.trim().replace(/\s+/g, " ");
+    if (!cleanName) return setError("Informe um nome.");
+    if (kind === "despesa" && !provides.trim())
+      return setError("Informe o que este fornecedor fornece.");
+    if (
+      relevant.some(
+        (contact) =>
+          contact.id !== editing?.id &&
+          contactIdentity(kind, contact.unit, contact.name) ===
+            contactIdentity(kind, unit, cleanName),
+      )
+    )
+      return setError("Este nome já está cadastrado neste centro de custo.");
+    if (
+      archivedContacts.some(
+        (contact) =>
+          contactIdentity(kind, contact.unit, contact.name) ===
+          contactIdentity(kind, unit, cleanName),
+      )
+    )
+      return setError("Este cadastro está arquivado. Restaure-o na lista abaixo.");
+    setSaving(true);
+    setError("");
+    try {
+      await save({
+        id: editing?.id ?? id(),
+        kind,
+        unit,
+        name: cleanName,
+        provides: kind === "despesa" ? provides.trim() : "",
+      });
+      reset();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Não foi possível salvar.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <section className="space-y-5">
+      <div>
+        <h2 className="text-xl font-extrabold text-[#14213d]">Cadastro de fornecedores e clientes</h2>
+      </div>
+      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Tipo de cadastro">
+        {(["despesa", "receita"] as Kind[]).map((tabKind) => (
+          <button key={tabKind} type="button" role="tab" aria-selected={kind === tabKind} onClick={() => selectKind(tabKind)} className={`rounded-xl px-4 py-2 text-sm font-bold ${kind === tabKind ? "bg-blue-700 text-white" : "border bg-white text-slate-600"}`}>
+            {tabKind === "despesa" ? "Fornecedores" : "Clientes / pagadores"}
+          </button>
+        ))}
+      </div>
+      <div>
+        <h3 className="font-extrabold text-[#14213d]">{title}</h3>
+        <p className="text-xs text-gray-500">
+          {kind === "despesa"
+            ? "Cadastre o fornecedor e o que ele fornece para selecioná-lo nas despesas."
+            : "Cadastre quem paga para selecioná-lo nas receitas."}
+        </p>
+      </div>
+      {!tableReady && (
+        <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+          Prévia local: os nomes dos lançamentos antigos aparecem abaixo. Para criar ou alterar cadastros compartilhados, ainda é necessário aplicar a migração ao banco.
+        </p>
+      )}
+      {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm font-bold text-red-700">{error}</p>}
+      <form onSubmit={submit} className="grid gap-3 rounded-2xl bg-white p-5 shadow-sm md:grid-cols-[1fr_1fr_auto] md:items-end">
+        <label className="text-xs font-bold text-slate-700">
+          Nome
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal"
+            placeholder={kind === "despesa" ? "Nome do fornecedor" : "Nome do cliente / pagador"}
+            disabled={!tableReady}
+          />
+        </label>
+        <label className="text-xs font-bold text-slate-700">
+          Centro de custo
+          <select
+            value={unit}
+            onChange={(event) => setUnit(event.target.value as Unit)}
+            className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal"
+            disabled={!tableReady || !!editing}
+          >
+            {allowedUnits.map((allowed) => <option key={allowed.name}>{allowed.name}</option>)}
+          </select>
+        </label>
+        {kind === "despesa" && (
+          <label className="text-xs font-bold text-slate-700 md:col-span-2">
+            O que fornece
+            <input
+              value={provides}
+              onChange={(event) => setProvides(event.target.value)}
+              className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal"
+              placeholder="Ex.: serviços de limpeza, insumos, consultoria"
+              disabled={!tableReady}
+            />
+          </label>
+        )}
+        <div className="flex gap-2 md:col-start-3">
+          {editing && <button type="button" onClick={reset} className="rounded-xl border px-4 py-3 text-xs font-bold">Cancelar</button>}
+          <button type="submit" disabled={!tableReady || saving || !allowedUnits.length} className="rounded-xl bg-blue-700 px-4 py-3 text-xs font-bold text-white disabled:opacity-50">
+            {saving ? "Salvando…" : editing ? "Salvar" : "Cadastrar"}
+          </button>
+        </div>
+      </form>
+      <section className="rounded-2xl bg-white p-5 shadow-sm">
+        <h3 className="mb-3 font-extrabold text-[#14213d]">Cadastrados ({relevant.length})</h3>
+        {relevant.length ? (
+          <div className="divide-y">
+            {relevant.map((contact) => (
+              <div key={contact.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                <div>
+                  <p className="font-bold text-slate-800">{contact.name}</p>
+                  <p className="text-xs text-gray-500">
+                    {contact.unit}
+                    {kind === "despesa" && ` · ${contact.provides || "O que fornece não informado"}`}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {contact.id.startsWith("legacy:") && (
+                    <span className="text-[11px] font-medium text-amber-700">Aguardando banco</span>
+                  )}
+                  <button type="button" disabled={!tableReady || contact.id.startsWith("legacy:")} title={!tableReady || contact.id.startsWith("legacy:") ? "Disponível após aplicar a migração do banco" : undefined} onClick={() => {
+                    setEditing(contact);
+                    setUnit(contact.unit);
+                    setName(contact.name);
+                    setProvides(contact.provides);
+                    setError("");
+                  }} className="rounded-lg border px-3 py-1.5 text-xs font-bold text-blue-700 disabled:cursor-not-allowed disabled:opacity-40">
+                    Editar
+                  </button>
+                  <button type="button" disabled={!tableReady || contact.id.startsWith("legacy:")} title={!tableReady || contact.id.startsWith("legacy:") ? "Disponível após aplicar a migração do banco" : undefined} onClick={() => {
+                    setConfirmArchive(contact);
+                    setError("");
+                  }} className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-bold text-red-600 disabled:cursor-not-allowed disabled:opacity-40">
+                    Excluir
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="py-5 text-center text-sm text-gray-400">Nenhum nome informado nos lançamentos deste acesso.</p>
+        )}
+      </section>
+      {archivedContacts.length > 0 && (
+        <section className="rounded-2xl bg-white p-5 shadow-sm">
+          <h3 className="mb-3 font-extrabold text-[#14213d]">Arquivados ({archivedContacts.length})</h3>
+          <div className="divide-y">
+            {archivedContacts.map((contact) => (
+              <div key={contact.id} className="flex items-center justify-between gap-3 py-3">
+                <div>
+                  <p className="font-bold text-slate-600">{contact.name}</p>
+                  <p className="text-xs text-gray-400">{contact.unit}</p>
+                </div>
+                <button type="button" disabled={archiveBusy} onClick={() => void changeArchive(contact, false)} className="rounded-lg border px-3 py-1.5 text-xs font-bold text-blue-700 disabled:opacity-50">
+                  Restaurar
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+      {confirmArchive && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" role="presentation" onClick={() => setConfirmArchive(null)}>
+          <section role="dialog" aria-modal="true" aria-labelledby="archive-contact-title" className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl" onClick={(event) => event.stopPropagation()}>
+            <h3 id="archive-contact-title" className="text-lg font-extrabold text-[#14213d]">Excluir {confirmArchive.name}?</h3>
+            <p className="mt-2 text-sm text-gray-600">O cadastro será arquivado e sairá das opções de novos lançamentos. Os lançamentos antigos e seus valores serão preservados.</p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" onClick={() => setConfirmArchive(null)} className="rounded-xl border px-4 py-2 text-xs font-bold">Cancelar</button>
+              <button type="button" disabled={archiveBusy} onClick={() => void changeArchive(confirmArchive, true)} className="rounded-xl bg-red-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{archiveBusy ? "Arquivando…" : "Excluir cadastro"}</button>
+            </div>
+          </section>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function EntryForm({
   kind: initial,
   categories,
+  contacts,
+  contactsTableReady,
   allowedUnits,
   editing,
   scope: initialScope,
@@ -841,6 +1120,8 @@ function EntryForm({
 }: {
   kind: Kind;
   categories: Category[];
+  contacts: Counterparty[];
+  contactsTableReady: boolean;
   allowedUnits: typeof units;
   editing: Entry | null;
   scope?: "one" | "series";
@@ -856,6 +1137,22 @@ function EntryForm({
     [category, setCategory] = useState(editing?.category ?? ""),
     [description, setDescription] = useState(editing?.description ?? ""),
     [beneficiary, setBeneficiary] = useState(editing?.beneficiary ?? ""),
+    [contactPickerOpen, setContactPickerOpen] = useState(false),
+    [contactSearch, setContactSearch] = useState(""),
+    [contactActiveIndex, setContactActiveIndex] = useState(-1),
+    [counterpartyId, setCounterpartyId] = useState<string>(
+      editing?.counterpartyId ??
+        (editing
+          ? contacts.find(
+              (contact) =>
+                contact.kind === editing.kind &&
+                contact.unit === editing.unit &&
+                counterpartyKey(contact.kind, contact.name) ===
+                  counterpartyKey(editing.kind, editing.beneficiary || ""),
+            )?.id
+          : undefined) ??
+        "",
+    ),
     [pix, setPix] = useState(editing?.pix ?? ""),
     [notes, setNotes] = useState(editing?.notes ?? ""),
     [amount, setAmount] = useState(editing ? String(editing.amount) : ""),
@@ -878,6 +1175,30 @@ function EntryForm({
   const available = categories.filter(
     (c) => c.unit === unit && c.kind === kind,
   );
+  const selectableContacts = contacts.filter(
+    (contact) =>
+      contact.kind === kind &&
+      allowedUnits.some((allowed) => allowed.name === contact.unit) &&
+      !contact.archived,
+  );
+  const matchingContacts = selectableContacts
+    .filter((contact) =>
+      `${contact.name} ${contact.unit}`
+        .toLocaleLowerCase("pt-BR")
+        .includes(contactSearch.trim().toLocaleLowerCase("pt-BR")),
+    )
+    .sort((a, b) =>
+      Number(b.unit === unit) - Number(a.unit === unit) ||
+      a.name.localeCompare(b.name, "pt-BR"),
+    );
+  const chooseContact = (contact: Counterparty) => {
+    setUnit(contact.unit);
+    setBeneficiary(contact.name);
+    setCounterpartyId(contact.id);
+    setContactPickerOpen(false);
+    setContactSearch("");
+    setContactActiveIndex(-1);
+  };
   useEffect(() => {
     if (!available.some((c) => c.name === category))
       setCategory(available[0]?.name ?? "");
@@ -885,6 +1206,7 @@ function EntryForm({
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     const v = parseMoney(amount);
+    const contactName = beneficiary.trim().replace(/\s+/g, " ");
     if (!description.trim()) {
       setSaveError("Informe uma descrição para o lançamento.");
       return;
@@ -895,6 +1217,20 @@ function EntryForm({
     }
     if (!category) {
       setSaveError("Selecione uma categoria antes de salvar.");
+      return;
+    }
+    if (
+      contactName &&
+      contacts.some(
+        (contact) =>
+          contact.archived &&
+          contact.id !== editing?.counterpartyId &&
+          contact.unit === unit &&
+          contact.kind === kind &&
+          counterpartyKey(kind, contact.name) === counterpartyKey(kind, contactName),
+      )
+    ) {
+      setSaveError("Este contato está arquivado. Restaure-o na aba Fornecedores e clientes antes de usar.");
       return;
     }
     if (sameMonthInstallments) {
@@ -932,7 +1268,12 @@ function EntryForm({
           account: unit,
           category,
           description,
-          beneficiary,
+          beneficiary: contactName,
+          counterpartyId: contactsTableReady
+            ? counterpartyId && !counterpartyId.startsWith("legacy:")
+              ? counterpartyId
+              : null
+            : undefined,
           pix: kind === "despesa" ? pix : "",
           notes,
           amount: v,
@@ -978,14 +1319,22 @@ function EntryForm({
           <div className="grid grid-cols-2 overflow-hidden rounded-xl border text-sm font-bold">
             <button
               type="button"
-              onClick={() => setKind("despesa")}
+              onClick={() => {
+                setKind("despesa");
+                setCounterpartyId("");
+                setBeneficiary("");
+              }}
               className={`p-3 ${kind === "despesa" ? "bg-red-600 text-white" : "text-gray-500"}`}
             >
               Despesa
             </button>
             <button
               type="button"
-              onClick={() => setKind("receita")}
+              onClick={() => {
+                setKind("receita");
+                setCounterpartyId("");
+                setBeneficiary("");
+              }}
               className={`p-3 ${kind === "receita" ? "bg-emerald-600 text-white" : "text-gray-500"}`}
             >
               Receita
@@ -996,7 +1345,11 @@ function EntryForm({
               Centro de custo
               <select
                 value={unit}
-                onChange={(e) => setUnit(e.target.value as Unit)}
+                onChange={(e) => {
+                  setUnit(e.target.value as Unit);
+                  setCounterpartyId("");
+                  setBeneficiary("");
+                }}
                 className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal"
               >
                 {allowedUnits.map((u) => (
@@ -1038,21 +1391,86 @@ function EntryForm({
           <div
             className={`grid gap-4 ${kind === "despesa" ? "sm:grid-cols-2" : "max-w-sm"}`}
           >
-            <label className="text-xs font-bold">
-              {kind === "despesa"
-                ? "Fornecedor / favorecido (opcional)"
-                : "Cliente / pagador (opcional)"}
-              <input
-                value={beneficiary}
-                onChange={(e) => setBeneficiary(e.target.value)}
-                placeholder={
-                  kind === "despesa"
-                    ? "Quem receberá este pagamento"
-                    : "Quem fez este pagamento"
-                }
-                className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal"
-              />
-            </label>
+            <div className="relative text-xs font-bold" onBlur={(event) => {
+              if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) {
+                setContactPickerOpen(false);
+                setContactActiveIndex(-1);
+              }
+            }}>
+              <label htmlFor="entry-counterparty">
+                {kind === "despesa"
+                  ? "Fornecedor / favorecido (opcional)"
+                  : "Cliente / pagador (opcional)"}
+              </label>
+              <div className="relative mt-1.5">
+                <input
+                  id="entry-counterparty"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded={contactPickerOpen}
+                  aria-controls="entry-counterparty-options"
+                  value={beneficiary}
+                  onFocus={() => {
+                    setContactSearch("");
+                    setContactPickerOpen(true);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      setContactPickerOpen(false);
+                      setContactActiveIndex(-1);
+                    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                      event.preventDefault();
+                      setContactPickerOpen(true);
+                      setContactActiveIndex((index) =>
+                        event.key === "ArrowDown"
+                          ? Math.min(index + 1, matchingContacts.length - 1)
+                          : Math.max(index - 1, 0),
+                      );
+                    } else if (event.key === "Enter" && contactPickerOpen && contactActiveIndex >= 0 && matchingContacts[contactActiveIndex]) {
+                      event.preventDefault();
+                      chooseContact(matchingContacts[contactActiveIndex]);
+                    }
+                  }}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    const match = selectableContacts.find(
+                      (contact) =>
+                        contact.unit === unit &&
+                        counterpartyKey(kind, contact.name) === counterpartyKey(kind, value),
+                    );
+                    setBeneficiary(value);
+                    setCounterpartyId(match?.id ?? "");
+                    setContactSearch(value);
+                    setContactActiveIndex(-1);
+                    setContactPickerOpen(true);
+                  }}
+                  placeholder={kind === "despesa" ? "Selecione ou digite o fornecedor" : "Selecione ou digite o cliente"}
+                  className="w-full rounded-xl border bg-gray-50 p-3 pr-10 text-sm font-normal focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                />
+                <button type="button" aria-label="Mostrar contatos cadastrados" aria-expanded={contactPickerOpen} onClick={() => {
+                  setContactSearch("");
+                  setContactActiveIndex(-1);
+                  setContactPickerOpen((open) => !open);
+                }} className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-slate-500">
+                  <ChevronRight className={`h-4 w-4 transition-transform ${contactPickerOpen ? "rotate-90" : "rotate-0"}`} />
+                </button>
+              {contactPickerOpen && (
+                <div id="entry-counterparty-options" role="listbox" className="absolute left-0 right-0 top-full z-[60] mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 text-left shadow-xl">
+                  {matchingContacts.length ? matchingContacts.map((contact, index) => (
+                    <button key={contact.id} type="button" role="option" aria-selected={contactActiveIndex === index} onClick={() => chooseContact(contact)} className={`flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-semibold ${contactActiveIndex === index ? "bg-blue-50 text-blue-800" : "text-slate-800 hover:bg-slate-50"}`}>
+                      <span className="truncate">{contact.name}</span>
+                      <span className="shrink-0 text-[11px] font-normal text-slate-500">{contact.unit}</span>
+                    </button>
+                  )) : (
+                    <p className="px-3 py-2.5 text-xs font-normal text-slate-500">{beneficiary.trim() ? "Nome novo: salve o lançamento para cadastrá-lo." : "Nenhum contato cadastrado."}</p>
+                  )}
+                </div>
+              )}
+              </div>
+              <span className="mt-1 block text-[11px] font-normal text-gray-500">
+                Escolha um contato de qualquer centro permitido ou digite um nome novo. Ao escolher outro centro, o lançamento muda para ele.
+              </span>
+            </div>
             {kind === "despesa" && (
               <label className="text-xs font-bold">
                 Chave PIX ou dados de pagamento
@@ -1811,16 +2229,172 @@ function Breakdown({
     </section>
   );
 }
+type CounterpartySummary = {
+  key: string;
+  name: string;
+  unit: Unit;
+  kind: Kind;
+  total: number;
+  realized: number;
+  pending: number;
+  overdue: number;
+  count: number;
+};
+
+function summarizeCounterparties(
+  entries: Entry[],
+  contacts: Counterparty[],
+  kind: Kind,
+  todayKey: string,
+) {
+  const matchingContacts = contacts.filter((contact) => contact.kind === kind);
+  const byId = new Map(matchingContacts.map((contact) => [contact.id, contact]));
+  const byName = new Map(
+    matchingContacts.map((contact) => [contactIdentity(kind, contact.unit, contact.name), contact]),
+  );
+  const rows = new Map<string, CounterpartySummary>();
+  const rowFor = (contact: Counterparty) => ({
+    key: contact.id,
+    name: contact.name,
+    unit: contact.unit,
+    kind,
+    total: 0,
+    realized: 0,
+    pending: 0,
+    overdue: 0,
+    count: 0,
+  });
+  matchingContacts.filter((contact) => !contact.archived).forEach((contact) => {
+    rows.set(contact.id, rowFor(contact));
+  });
+  entries.filter((entry) => entry.kind === kind).forEach((entry) => {
+    const contact =
+      (entry.counterpartyId && byId.get(entry.counterpartyId)) ||
+      byName.get(contactIdentity(kind, entry.unit, entry.beneficiary || ""));
+    const name = contact?.name || entry.beneficiary?.trim();
+    if (!name) return;
+    const key = contact?.id ?? contactIdentity(kind, entry.unit, name);
+    const row = rows.get(key) ?? (contact ? rowFor(contact) : {
+      key, name, unit: entry.unit, kind, total: 0, realized: 0,
+      pending: 0, overdue: 0, count: 0,
+    });
+    row.total += entry.amount;
+    row.count += 1;
+    if (entry.status === "realizado") row.realized += entry.amount;
+    else {
+      row.pending += entry.amount;
+      if (entry.date < todayKey) row.overdue += entry.amount;
+    }
+    rows.set(key, row);
+  });
+  return [...rows.values()].sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, "pt-BR"));
+}
+
+function CounterpartyOverview({
+  kind, entries, contacts, todayKey,
+}: {
+  kind: Kind; entries: Entry[]; contacts: Counterparty[]; todayKey: string;
+}) {
+  const rows = summarizeCounterparties(entries, contacts, kind, todayKey);
+  const activeCount = contacts.filter((contact) => contact.kind === kind && !contact.archived).length;
+  const total = rows.reduce((sum, row) => sum + row.total, 0);
+  const pending = rows.reduce((sum, row) => sum + row.pending, 0);
+  const unidentified = entries.filter((entry) => entry.kind === kind).reduce((sum, entry) => sum + entry.amount, 0) - total;
+  const expense = kind === "despesa";
+  return (
+    <section className="rounded-2xl bg-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h2 className="font-extrabold text-[#14213d]">{expense ? "Fornecedores" : "Clientes / pagadores"}</h2>
+          <p className="mt-1 text-xs text-gray-400">Movimentação identificada no mês selecionado.</p>
+        </div>
+        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600">{activeCount} cadastrados</span>
+      </div>
+      <div className="mt-4 grid grid-cols-2 gap-3 rounded-xl bg-slate-50 p-3">
+        <div><p className="text-[11px] text-slate-500">{expense ? "Despesas identificadas" : "Receitas identificadas"}</p><b className={expense ? "text-red-600" : "text-emerald-600"}>{fmt(total)}</b></div>
+        <div><p className="text-[11px] text-slate-500">{expense ? "A pagar" : "A receber"}</p><b className="text-orange-600">{fmt(pending)}</b></div>
+      </div>
+      <div className="mt-3 divide-y divide-slate-100">
+        {rows.filter((row) => row.total > 0).slice(0, 4).map((row) => (
+          <div key={row.key} className="flex items-center justify-between gap-3 py-2.5 text-xs">
+            <span className="min-w-0 truncate font-bold text-slate-700" title={`${row.name} · ${row.unit}`}>{row.name} <span className="font-normal text-slate-400">· {row.unit}</span></span>
+            <b className="shrink-0 text-slate-900">{fmt(row.total)}</b>
+          </div>
+        ))}
+        {!rows.some((row) => row.total > 0) && <p className="py-5 text-center text-xs text-slate-400">Sem movimentação identificada neste mês.</p>}
+      </div>
+      {unidentified > 0.001 && <p className="mt-2 text-[11px] text-slate-500">Sem {expense ? "fornecedor" : "cliente"} informado: {fmt(unidentified)}</p>}
+    </section>
+  );
+}
+
+function CounterpartyReportPanel({
+  kind, entries, contacts, todayKey,
+}: {
+  kind: Kind; entries: Entry[]; contacts: Counterparty[]; todayKey: string;
+}) {
+  const rows = summarizeCounterparties(entries, contacts, kind, todayKey);
+  const moved = rows.filter((row) => row.count > 0);
+  const total = moved.reduce((sum, row) => sum + row.total, 0);
+  const unidentified = entries.filter((entry) => entry.kind === kind).reduce((sum, entry) => sum + entry.amount, 0) - total;
+  const expense = kind === "despesa";
+  return (
+    <section className="rounded-2xl bg-white p-5 shadow-sm">
+      <h2 className="font-extrabold text-[#14213d]">{expense ? "Relatório por fornecedor" : "Relatório por cliente / pagador"}</h2>
+      <p className="mt-1 text-xs text-slate-400">Valores dos lançamentos no período e filtros selecionados.</p>
+      <div className="mt-4 flex flex-wrap gap-3 text-xs">
+        <span className="rounded-lg bg-slate-50 px-3 py-2">{moved.length} com movimentação</span>
+        <span className="rounded-lg bg-slate-50 px-3 py-2">Total identificado: <b>{fmt(total)}</b></span>
+        {unidentified > 0.001 && <span className="rounded-lg bg-amber-50 px-3 py-2 text-amber-800">Sem {expense ? "fornecedor" : "cliente"}: {fmt(unidentified)}</span>}
+      </div>
+      {moved.length > 0 && (
+        <div className="mt-5 h-64 overflow-x-auto">
+          <div className="h-full" style={{ minWidth: 380 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={moved.slice(0, 8).map((row) => ({ ...row, label: `${row.name} · ${row.unit}` })).reverse()} layout="vertical" margin={{ left: 8, right: 12 }}>
+                <CartesianGrid horizontal={false} stroke="#e2e8f0" strokeDasharray="3 3" />
+                <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={(value: number) => new Intl.NumberFormat("pt-BR", { notation: "compact" }).format(value)} />
+                <YAxis type="category" dataKey="label" width={145} tick={{ fontSize: 10 }} />
+                <Tooltip formatter={(value, name) => [fmt(Number(value)), name === "realized" ? (expense ? "Pago" : "Recebido") : (expense ? "A pagar" : "A receber")]} contentStyle={{ borderRadius: 12, borderColor: "#e2e8f0" }} />
+                <Legend formatter={(value) => value === "realized" ? (expense ? "Pago" : "Recebido") : (expense ? "A pagar" : "A receber")} wrapperStyle={{ fontSize: 11 }} />
+                <Bar dataKey="realized" stackId="total" fill={expense ? "#dc2626" : "#059669"} />
+                <Bar dataKey="pending" stackId="total" fill={expense ? "#fdba74" : "#93c5fd"} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+      <div className="mt-4 overflow-x-auto">
+        <table className="w-full min-w-[650px] text-left text-xs">
+          <thead className="border-b bg-slate-50 text-slate-500">
+            <tr><th className="p-3">{expense ? "Fornecedor" : "Cliente / pagador"}</th><th className="p-3">Centro</th><th className="p-3 text-right">{expense ? "Pago" : "Recebido"}</th><th className="p-3 text-right">Em aberto</th><th className="p-3 text-right">Vencido</th><th className="p-3 text-right">Total</th><th className="p-3 text-right">Lanç.</th></tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {rows.map((row) => (
+              <tr key={row.key} className="hover:bg-slate-50">
+                <td className="p-3 font-bold text-slate-800">{row.name}</td><td className="p-3 text-slate-600">{row.unit}</td><td className="p-3 text-right">{fmt(row.realized)}</td><td className="p-3 text-right">{fmt(row.pending)}</td><td className="p-3 text-right text-red-600">{fmt(row.overdue)}</td><td className="p-3 text-right font-extrabold">{fmt(row.total)}</td><td className="p-3 text-right">{row.count}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {!rows.length && <p className="py-8 text-center text-sm text-slate-400">Nenhum cadastro ou lançamento identificado para este filtro.</p>}
+      </div>
+    </section>
+  );
+}
+
 function Reports({
   entries,
   accounts,
   allowedUnits,
   categories,
+  contacts,
 }: {
   entries: Entry[];
   accounts: Account[];
   allowedUnits: typeof units;
   categories: Category[];
+  contacts: Counterparty[];
 }) {
   const today = new Date();
   const currentMonthStart = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`;
@@ -1831,6 +2405,13 @@ function Reports({
   const [account, setAccount] = useState("Todos");
   const [category, setCategory] = useState("Todos");
   const [kind, setKind] = useState<Kind | "todos">("todos");
+  const [counterparty, setCounterparty] = useState("Todos");
+  const counterpartyOptions = contacts
+    .filter((contact) =>
+      (unit === "Todos" || contact.unit === unit) &&
+      (kind === "todos" || contact.kind === kind),
+    )
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
   const filtered = entries.filter(
     (entry) =>
       entry.date >= from &&
@@ -1838,7 +2419,9 @@ function Reports({
       (unit === "Todos" || entry.unit === unit) &&
       (account === "Todos" || entry.account === account) &&
       (category === "Todos" || entry.category === category) &&
-      (kind === "todos" || entry.kind === kind),
+      (kind === "todos" || entry.kind === kind) &&
+      (counterparty === "Todos" ||
+        contactIdentity(entry.kind, entry.unit, entry.beneficiary || "") === counterparty),
   );
   const total = (entryKind: Kind, status?: Entry["status"]) =>
     filtered
@@ -1937,29 +2520,9 @@ function Reports({
       bucket[key] += entry.amount;
     });
   }
-  const beneficiaries = Object.entries(
-    filtered
-      .filter((entry) => entry.beneficiary.trim())
-      .reduce<Record<string, number>>((result, entry) => {
-        const label = entry.beneficiary.trim();
-        result[label] = (result[label] || 0) + entry.amount;
-        return result;
-      }, {}),
-  )
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
-  const counterpartyTitle =
-    kind === "despesa"
-      ? "Fornecedores / favorecidos"
-      : kind === "receita"
-        ? "Clientes / pagadores"
-        : "Contrapartes informadas";
-  const counterpartyEmpty =
-    kind === "despesa"
-      ? "Nenhum fornecedor ou favorecido informado."
-      : kind === "receita"
-        ? "Nenhum cliente ou pagador informado."
-        : "Nenhuma contraparte informada.";
+  const reportContacts = contacts.filter((contact) =>
+    unit === "Todos" || contact.unit === unit,
+  );
   const accountRows = accounts
     .filter((item) => unit === "Todos" || item.unit === unit)
     .map((item) => ({
@@ -2006,6 +2569,7 @@ function Reports({
                 setUnit(event.target.value as Unit | "Todos");
                 setAccount("Todos");
                 setCategory("Todos");
+                setCounterparty("Todos");
               }}
               className="mt-1.5 block rounded-xl border bg-gray-50 p-2.5 text-sm font-normal"
             >
@@ -2055,14 +2619,30 @@ function Reports({
             Tipo
             <select
               value={kind}
-              onChange={(event) =>
-                setKind(event.target.value as Kind | "todos")
-              }
+              onChange={(event) => {
+                setKind(event.target.value as Kind | "todos");
+                setCounterparty("Todos");
+              }}
               className="mt-1.5 block rounded-xl border bg-gray-50 p-2.5 text-sm font-normal"
             >
               <option value="todos">Todos</option>
               <option value="receita">Receitas</option>
               <option value="despesa">Despesas</option>
+            </select>
+          </label>
+          <label className="text-xs font-bold">
+            Fornecedor / cliente
+            <select
+              value={counterparty}
+              onChange={(event) => setCounterparty(event.target.value)}
+              className="mt-1.5 block max-w-56 rounded-xl border bg-gray-50 p-2.5 text-sm font-normal"
+            >
+              <option value="Todos">Todos</option>
+              {counterpartyOptions.map((contact) => (
+                <option key={contact.id} value={contactIdentity(contact.kind, contact.unit, contact.name)}>
+                  {contact.name} · {contact.unit} · {contact.kind === "despesa" ? "Fornecedor" : "Cliente"}
+                </option>
+              ))}
             </select>
           </label>
         </div>
@@ -2237,29 +2817,9 @@ function Reports({
           </div>
         </section>
       </div>
-      <div>
-        <section className="rounded-2xl bg-white p-5 shadow-sm">
-          <h2 className="font-extrabold text-[#14213d]">{counterpartyTitle}</h2>
-          <p className="mt-1 text-xs text-gray-400">
-            Campo opcional nos lançamentos.
-          </p>
-          <div className="mt-4 divide-y">
-            {beneficiaries.map(([label, value]) => (
-              <div
-                key={label}
-                className="flex justify-between gap-4 py-3 text-sm"
-              >
-                <span className="font-bold text-gray-700">{label}</span>
-                <span className="font-extrabold text-slate-900">
-                  {fmt(value)}
-                </span>
-              </div>
-            ))}
-            {!beneficiaries.length && (
-              <p className="py-5 text-sm text-gray-400">{counterpartyEmpty}</p>
-            )}
-          </div>
-        </section>
+      <div className={`grid gap-5 ${kind === "todos" ? "xl:grid-cols-2" : ""}`}>
+        {kind !== "receita" && <CounterpartyReportPanel kind="despesa" entries={filtered} contacts={reportContacts} todayKey={todayKey} />}
+        {kind !== "despesa" && <CounterpartyReportPanel kind="receita" entries={filtered} contacts={reportContacts} todayKey={todayKey} />}
       </div>
       <section className="rounded-2xl bg-white p-5 shadow-sm">
         <h2 className="font-extrabold text-[#14213d]">
@@ -2300,6 +2860,8 @@ function App() {
     } | null>(null),
     [editScope, setEditScope] = useState<"one" | "series">("one"),
     [entries, setEntries] = useState<Entry[]>([]),
+    [savedContacts, setSavedContacts] = useState<Counterparty[]>([]),
+    [contactsTableReady, setContactsTableReady] = useState(false),
     [categories, setCategories] = useState<Category[]>([]),
     [accounts, setAccounts] = useState<Account[]>(() =>
       units.map((unit) => ({
@@ -2322,6 +2884,10 @@ function App() {
     [month, setMonth] = useState(
       () => new Date(new Date().getFullYear(), new Date().getMonth(), 1),
     );
+  const contacts = useMemo(
+    () => contactsWithLegacyEntries(savedContacts, entries),
+    [savedContacts, entries],
+  );
   useEffect(() => {
     if (currentUser)
       localStorage.setItem("fincore.user", JSON.stringify(currentUser));
@@ -2371,6 +2937,8 @@ function App() {
     let active = true;
     if (!currentUser) {
       setDataReady(false);
+      setSavedContacts([]);
+      setContactsTableReady(false);
       return () => {
         active = false;
       };
@@ -2406,8 +2974,19 @@ function App() {
         const loadedEntries = entryRows.map((row: any) => ({
           ...row,
           seriesId: row.series_id || undefined,
+          counterpartyId: row.counterparty_id ?? undefined,
           amount: Number(row.amount),
         })) as Entry[];
+        // The new registry has its own migration. Until it is applied, the
+        // old production database and existing launches must remain readable.
+        let contactRows: Counterparty[] = [];
+        let contactTableAvailable = false;
+        try {
+          contactRows = await readAuthenticatedRows<Counterparty>("counterparties");
+          contactTableAvailable = true;
+        } catch (contactError) {
+          console.info("Fincore: cadastro de contatos ainda indisponível", contactError);
+        }
         // Keep recurring series alive without pre-creating decades of records.
         // Only missing months inside the rolling three-year window are written.
         const projectedEntries = nextRecurringEntries(loadedEntries);
@@ -2427,6 +3006,8 @@ function App() {
         }
         if (!active) return;
         setEntries(entriesToShow);
+        setSavedContacts(contactRows);
+        setContactsTableReady(contactTableAvailable);
         setCategories(categoryRows);
         setAccounts(
           accountRows.map((row: any) => ({
@@ -2733,6 +3314,16 @@ function App() {
       setNotificationsOpen(false);
       setScreen("lancamentos");
     };
+  const refreshContacts = async () => {
+    if (!contactsTableReady) return;
+    try {
+      setSavedContacts(await readAuthenticatedRows<Counterparty>("counterparties"));
+    } catch (error) {
+      // A successful entry remains saved even if refreshing the separate
+      // contact list fails; its name is still visible through the entry.
+      console.error("Fincore: falha ao atualizar contatos", error);
+    }
+  };
   const save = async (
       data: Omit<Entry, "id">,
       scope: "one" | "series",
@@ -2764,6 +3355,7 @@ function App() {
         );
         await saveRemoteEntries(changed);
         setEntries(updated);
+        void refreshContacts();
         setEditing(null);
         return;
       }
@@ -2811,6 +3403,7 @@ function App() {
         ).flat();
         await saveRemoteEntries(created);
         setEntries((old) => [...created, ...old]);
+        void refreshContacts();
         return;
       }
       const base = new Date(`${data.date}T12:00:00`),
@@ -2839,6 +3432,7 @@ function App() {
       });
       await saveRemoteEntries(created);
       setEntries((old) => [...created, ...old]);
+      void refreshContacts();
     },
     settle = async (x: Entry) => {
       const updated = {
@@ -2889,14 +3483,14 @@ function App() {
       ),
     counterparties = Array.from(
       new Map<string, { key: string; kind: Kind; name: string }>(
-        visible
-          .filter((x) => x.beneficiary?.trim())
-          .map((x): [string, { key: string; kind: Kind; name: string }] => [
-            counterpartyKey(x.kind, x.beneficiary),
+        contacts
+          .filter((contact) => allowedUnits.some((unit) => unit.name === contact.unit))
+          .map((contact): [string, { key: string; kind: Kind; name: string }] => [
+            counterpartyKey(contact.kind, contact.name),
             {
-              key: counterpartyKey(x.kind, x.beneficiary),
-              kind: x.kind,
-              name: x.beneficiary.trim(),
+              key: counterpartyKey(contact.kind, contact.name),
+              kind: contact.kind,
+              name: contact.name,
             },
           ]),
       ).values(),
@@ -2917,13 +3511,14 @@ function App() {
       { id: "lancamentos", text: "Lançamentos", Icon: ReceiptText },
       { id: "contas", text: "Contas", Icon: Wallet },
       { id: "categorias", text: "Plano de contas", Icon: Tag },
+      { id: "contatos", text: "Fornecedores/clientes", Icon: Building2 },
       { id: "relatorios", text: "Relatórios", Icon: BarChart3 },
       { id: "usuarios", text: "Usuários", Icon: Menu },
     ];
   return (
     <div className="flex h-screen overflow-hidden bg-[#f2f4f8]">
       <aside
-        className={`fixed z-30 flex h-full w-56 flex-col bg-[#14213d] text-white transition-transform lg:relative ${menu ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}
+        className={`fixed z-30 flex h-full w-64 shrink-0 flex-col bg-[#14213d] text-white transition-transform lg:relative ${menu ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}
       >
         <div className="flex items-center justify-between border-b border-white/10 px-4 py-6">
           <div className="min-w-0 flex-1 text-center">
@@ -2964,8 +3559,8 @@ function App() {
                 }}
                 className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold ${screen === x.id ? "bg-blue-600" : "text-white/60"}`}
               >
-                <x.Icon className="h-4 w-4" />
-                {x.text}
+                <x.Icon className="h-4 w-4 shrink-0" />
+                <span className="truncate whitespace-nowrap text-left">{x.text}</span>
               </button>
             ))}
         </nav>
@@ -3373,6 +3968,10 @@ function App() {
                   categories={categories}
                 />
               </section>
+              <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                <CounterpartyOverview kind="despesa" entries={current} contacts={contacts.filter((contact) => allowedUnits.some((allowed) => allowed.name === contact.unit))} todayKey={today} />
+                <CounterpartyOverview kind="receita" entries={current} contacts={contacts.filter((contact) => allowedUnits.some((allowed) => allowed.name === contact.unit))} todayKey={today} />
+              </div>
               <section className="mt-5 rounded-2xl bg-white p-5 shadow-sm">
                 <h2 className="font-extrabold text-[#14213d]">
                   Lançamentos de {labelMonth(month)}
@@ -3455,6 +4054,35 @@ function App() {
                   ))}
               </div>
             </section>
+          ) : screen === "contatos" ? (
+            <ContactsScreen
+              contacts={contacts}
+              allowedUnits={allowedUnits}
+              tableReady={contactsTableReady}
+              save={async (contact) => {
+                if (!allowedUnits.some((unit) => unit.name === contact.unit))
+                  throw new Error("Este centro de custo não está disponível para seu acesso.");
+                const saved = await saveRemoteCounterparty(contact);
+                const savedContact = saved as Counterparty;
+                setSavedContacts((old) => [
+                  ...old.filter((item) => item.id !== savedContact.id),
+                  savedContact,
+                ]);
+                setEntries((old) => old.map((entry) =>
+                  entry.counterpartyId === savedContact.id
+                    ? { ...entry, beneficiary: savedContact.name }
+                    : entry,
+                ));
+              }}
+              archive={async (contact, archived) => {
+                if (!allowedUnits.some((unit) => unit.name === contact.unit))
+                  throw new Error("Este centro de custo não está disponível para seu acesso.");
+                const updated = await setRemoteCounterpartyArchived(contact.id, archived);
+                setSavedContacts((old) =>
+                  old.map((item) => item.id === contact.id ? updated as Counterparty : item),
+                );
+              }}
+            />
           ) : screen === "relatorios" ? (
             <Reports
               entries={entries.filter(
@@ -3465,6 +4093,7 @@ function App() {
               accounts={accounts}
               allowedUnits={allowedUnits}
               categories={categories}
+              contacts={contacts.filter((contact) => allowedUnits.some((allowed) => allowed.name === contact.unit))}
             />
           ) : screen === "usuarios" ? (
             <UsersAdmin
@@ -3732,6 +4361,8 @@ function App() {
         <EntryForm
           kind={modal}
           categories={categories}
+          contacts={contacts}
+          contactsTableReady={contactsTableReady}
           allowedUnits={allowedUnits}
           editing={editing}
           scope={editScope}
