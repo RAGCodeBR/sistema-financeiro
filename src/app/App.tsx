@@ -2677,12 +2677,10 @@ function App() {
     };
   const key = month.toISOString().slice(0, 7),
     today = new Date().toISOString().slice(0, 10),
-    visible = entries
-      .filter(
-        (x) =>
-          currentUser.role === "master" || currentUser.units.includes(x.unit),
-      )
-      .filter((x) => filter === "Todos" || x.unit === filter),
+    visible = entries.filter(
+      (x) =>
+        currentUser.role === "master" || currentUser.units.includes(x.unit),
+    ),
     pending = visible.filter(
       (x) => x.status === "previsto" && x.date <= today,
     ),
@@ -2705,6 +2703,7 @@ function App() {
     move = (n: number) =>
       setMonth((v) => new Date(v.getFullYear(), v.getMonth() + n, 1)),
     openOverdue = (kind: Kind | "todos" = "todos") => {
+      setFilter("Todos");
       setOverdueKind(kind);
       setEntryFilter("atrasadas");
       setNotificationsOpen(false);
@@ -2715,6 +2714,7 @@ function App() {
         openOverdue(entry.kind);
         return;
       }
+      setFilter("Todos");
       setEntryFilter(entry.kind === "despesa" ? "pagar" : "receber");
       setMonth(new Date(`${entry.date}T12:00:00`));
       setNotificationsOpen(false);
@@ -2849,22 +2849,25 @@ function App() {
       );
     },
     open = (kind: Kind) => {
+      setFilter("Todos");
       setEditing(null);
       setModal(kind);
       setScreen("lancamentos");
     },
-    list = (entryFilter === "atrasadas" ? overdue : current).filter(
-      (x) =>
-        entryFilter === "todos" ||
-        (entryFilter === "pagar" &&
-          x.kind === "despesa" &&
-          x.status === "previsto") ||
-        (entryFilter === "receber" &&
-          x.kind === "receita" &&
-          x.status === "previsto") ||
-        (entryFilter === "atrasadas" &&
-          (overdueKind === "todos" || x.kind === overdueKind)),
-    ),
+    list = (entryFilter === "atrasadas" ? overdue : current)
+      .filter((x) => filter === "Todos" || x.unit === filter)
+      .filter(
+        (x) =>
+          entryFilter === "todos" ||
+          (entryFilter === "pagar" &&
+            x.kind === "despesa" &&
+            x.status === "previsto") ||
+          (entryFilter === "receber" &&
+            x.kind === "receita" &&
+            x.status === "previsto") ||
+          (entryFilter === "atrasadas" &&
+            (overdueKind === "todos" || x.kind === overdueKind)),
+      ),
     byUnit = allowedUnits.map((u) => ({
       ...u,
       categories: categories.filter((c) => c.unit === u.name),
@@ -2911,7 +2914,11 @@ function App() {
                 key={x.id}
                 onClick={() => {
                   setScreen(x.id);
-                  if (x.id === "lancamentos") setEntryFilter("todos");
+                  if (x.id === "lancamentos") {
+                    setFilter("Todos");
+                    setEntryFilter("todos");
+                    setOverdueKind("todos");
+                  }
                   setMenu(false);
                 }}
                 className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold ${screen === x.id ? "bg-blue-600" : "text-white/60"}`}
