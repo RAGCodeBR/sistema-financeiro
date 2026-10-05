@@ -31,6 +31,19 @@ import {
   Wallet,
   X,
 } from "lucide-react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 type Kind = "receita" | "despesa";
 type Unit = "Marketing" | "Sítio" | "Consultoria" | "Pessoa Física";
@@ -1828,74 +1841,92 @@ function Reports({
   const expense = total("despesa");
   const pendingPay = total("despesa", "previsto");
   const pendingReceive = total("receita", "previsto");
-  const byCategory = Object.entries(
-    filtered.reduce<Record<string, number>>((result, entry) => {
-      const label = `${entry.kind === "receita" ? "Receita" : "Despesa"}: ${entry.category}`;
-      result[label] = (result[label] || 0) + entry.amount;
-      return result;
-    }, {}),
-  ).sort((a, b) => b[1] - a[1]);
-  const expenseCategories = Object.entries(
-    filtered
-      .filter((entry) => entry.kind === "despesa")
-      .reduce<Record<string, number>>((result, entry) => {
-        result[entry.category] = (result[entry.category] || 0) + entry.amount;
-        return result;
-      }, {}),
-  ).sort((a, b) => b[1] - a[1]);
-  const incomeCategories = Object.entries(
-    filtered
-      .filter((entry) => entry.kind === "receita")
-      .reduce<Record<string, number>>((result, entry) => {
-        result[entry.category] = (result[entry.category] || 0) + entry.amount;
-        return result;
-      }, {}),
-  ).sort((a, b) => b[1] - a[1]);
-  const categoryColor = (entryKind: Kind, categoryName: string) =>
-    categories.find(
-      (item) =>
-        item.kind === entryKind &&
-        item.name === categoryName &&
-        (unit === "Todos" || item.unit === unit),
-    )?.color ?? (entryKind === "receita" ? "#10b981" : "#ef4444");
-  const categoryPie = (rows: [string, number][], entryKind: Kind) => {
-    const total = rows.reduce((sum, [, value]) => sum + value, 0);
-    if (!total) return "conic-gradient(#e2e8f0 0 100%)";
-    let cursor = 0;
-    return `conic-gradient(${rows
-      .map(([name, value]) => {
-        const start = cursor;
-        cursor += (value / total) * 100;
-        return `${categoryColor(entryKind, name)} ${start}% ${cursor}%`;
-      })
-      .join(",")})`;
-  };
-  const pie = categoryPie(expenseCategories, "despesa");
-  const incomePie = categoryPie(incomeCategories, "receita");
-  const months = Array.from(
-    { length: 6 },
-    (_, index) =>
-      new Date(today.getFullYear(), today.getMonth() - 5 + index, 1),
-  );
-  const monthly = months.map((date) => {
-    const key = date.toISOString().slice(0, 7);
-    const values = filtered.filter((entry) => entry.date.startsWith(key));
-    return {
-      label: date
-        .toLocaleDateString("pt-BR", { month: "short" })
-        .replace(".", ""),
-      income: values
-        .filter((entry) => entry.kind === "receita")
-        .reduce((sum, entry) => sum + entry.amount, 0),
-      expense: values
-        .filter((entry) => entry.kind === "despesa")
-        .reduce((sum, entry) => sum + entry.amount, 0),
-    };
-  });
-  const monthlyMax = Math.max(
-    1,
-    ...monthly.flatMap((item) => [item.income, item.expense]),
-  );
+  const dateLabel = (value: string) =>
+    new Date(`${value}T12:00:00`).toLocaleDateString("pt-BR");
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const realizedIncome = total("receita", "realizado");
+  const realizedExpense = total("despesa", "realizado");
+  const overduePay = filtered
+    .filter((entry) => entry.kind === "despesa" && entry.status === "previsto" && entry.date < todayKey)
+    .reduce((sum, entry) => sum + entry.amount, 0);
+  const overdueReceive = filtered
+    .filter((entry) => entry.kind === "receita" && entry.status === "previsto" && entry.date < todayKey)
+    .reduce((sum, entry) => sum + entry.amount, 0);
+  const categoryDetails = Array.from(
+    filtered.reduce((map, entry) => {
+      const key = `${entry.kind}|${entry.unit}|${entry.category}`;
+      const existing = map.get(key) ?? {
+        key,
+        name: entry.category || "Sem categoria",
+        unit: entry.unit,
+        kind: entry.kind,
+        total: 0,
+        realized: 0,
+        pending: 0,
+        overdue: 0,
+        count: 0,
+        color: categories.find((item) => item.kind === entry.kind && item.unit === entry.unit && item.name === entry.category)?.color
+          ?? (entry.kind === "receita" ? "#10b981" : "#ef4444"),
+      };
+      existing.total += entry.amount;
+      existing.count += 1;
+      if (entry.status === "realizado") existing.realized += entry.amount;
+      else {
+        existing.pending += entry.amount;
+        if (entry.date < todayKey) existing.overdue += entry.amount;
+      }
+      map.set(key, existing);
+      return map;
+    }, new Map<string, {
+      key: string; name: string; unit: Unit; kind: Kind; total: number;
+      realized: number; pending: number; overdue: number; count: number; color: string;
+    }>() ).values(),
+  ).sort((a, b) => b.total - a.total);
+  const expenseDetails = categoryDetails.filter((item) => item.kind === "despesa");
+  const incomeDetails = categoryDetails.filter((item) => item.kind === "receita");
+  const largestExpenses = filtered
+    .filter((entry) => entry.kind === "despesa")
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 8);
+  const validPeriod = Boolean(from && to && from <= to);
+  const periodStart = new Date(`${from}T12:00:00`);
+  const periodEnd = new Date(`${to}T12:00:00`);
+  const shortPeriod = validPeriod && (periodEnd.getTime() - periodStart.getTime()) / 86400000 <= 62;
+  const longPeriod = validPeriod && (periodEnd.getTime() - periodStart.getTime()) / 86400000 > 3650;
+  const periodBuckets: {
+    label: string; start: string; end: string;
+    "Receitas recebidas": number; "Receitas previstas": number;
+    "Despesas pagas": number; "Despesas previstas": number;
+  }[] = [];
+  if (validPeriod) {
+    const cursor = new Date(periodStart);
+    while (cursor <= periodEnd) {
+      const bucketStart = new Date(cursor);
+      const next = shortPeriod
+        ? new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 7, 12)
+        : longPeriod
+          ? new Date(cursor.getFullYear() + 1, 0, 1, 12)
+          : new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1, 12);
+      const bucketEnd = new Date(Math.min(periodEnd.getTime(), next.getTime() - 86400000));
+      const startKey = `${bucketStart.getFullYear()}-${String(bucketStart.getMonth() + 1).padStart(2, "0")}-${String(bucketStart.getDate()).padStart(2, "0")}`;
+      const endKey = `${bucketEnd.getFullYear()}-${String(bucketEnd.getMonth() + 1).padStart(2, "0")}-${String(bucketEnd.getDate()).padStart(2, "0")}`;
+      periodBuckets.push({
+        label: shortPeriod ? `${dateLabel(startKey).slice(0, 5)}–${dateLabel(endKey).slice(0, 5)}` : longPeriod ? String(bucketStart.getFullYear()) : bucketStart.toLocaleDateString("pt-BR", { month: "short", year: "2-digit" }),
+        start: startKey, end: endKey,
+        "Receitas recebidas": 0, "Receitas previstas": 0,
+        "Despesas pagas": 0, "Despesas previstas": 0,
+      });
+      cursor.setTime(next.getTime());
+    }
+    filtered.forEach((entry) => {
+      const bucket = periodBuckets.find((item) => entry.date >= item.start && entry.date <= item.end);
+      if (!bucket) return;
+      const key = entry.kind === "receita"
+        ? (entry.status === "realizado" ? "Receitas recebidas" : "Receitas previstas")
+        : (entry.status === "realizado" ? "Despesas pagas" : "Despesas previstas");
+      bucket[key] += entry.amount;
+    });
+  }
   const beneficiaries = Object.entries(
     filtered
       .filter((entry) => entry.beneficiary.trim())
@@ -1927,7 +1958,7 @@ function Reports({
       balance: filtered
         .filter(
           (entry) =>
-            entry.account === item.name && entry.status === "realizado",
+            entry.account === item.name && entry.unit === item.unit && entry.status === "realizado",
         )
         .reduce(
           (sum, entry) =>
@@ -2028,14 +2059,18 @@ function Reports({
       </div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
-          ["Receitas", income, "text-emerald-600"],
-          ["Despesas", expense, "text-red-600"],
+          ["Receitas no período", income, "text-emerald-600"],
+          ["Despesas no período", expense, "text-red-600"],
           [
-            "Resultado",
+            "Resultado projetado",
             income - expense,
             income - expense >= 0 ? "text-blue-700" : "text-red-600",
           ],
-          ["Previsão líquida", pendingReceive - pendingPay, "text-violet-700"],
+          ["Resultado realizado", realizedIncome - realizedExpense, realizedIncome >= realizedExpense ? "text-blue-700" : "text-red-600"],
+          ["A pagar", pendingPay, "text-orange-600"],
+          ["A receber", pendingReceive, "text-blue-700"],
+          ["Pagar vencido", overduePay, "text-red-600"],
+          ["Receber vencido", overdueReceive, "text-orange-600"],
         ].map(([label, value, color]) => (
           <article
             key={label as string}
@@ -2048,127 +2083,151 @@ function Reports({
           </article>
         ))}
       </div>
-      <div className="grid gap-5 xl:grid-cols-[1.2fr_.8fr]">
-        <section className="rounded-2xl bg-white p-5 shadow-sm">
-          <h2 className="font-extrabold text-[#14213d]">
-            Fluxo financeiro — últimos 6 meses
-          </h2>
-          <div className="mt-7 flex h-56 items-end justify-between gap-3">
-            {monthly.map((item) => (
-              <div
-                key={item.label}
-                className="flex h-full flex-1 flex-col justify-end"
-              >
-                <div className="flex h-full items-end justify-center gap-1">
-                  <div
-                    title={`Receitas: ${fmt(item.income)}`}
-                    className="w-4 rounded-t bg-emerald-500"
-                    style={{ height: `${(item.income / monthlyMax) * 100}%` }}
-                  />
-                  <div
-                    title={`Despesas: ${fmt(item.expense)}`}
-                    className="w-4 rounded-t bg-red-500"
-                    style={{ height: `${(item.expense / monthlyMax) * 100}%` }}
-                  />
-                </div>
-                <p className="mt-2 text-center text-[11px] font-bold text-gray-400">
-                  {item.label}
-                </p>
-              </div>
-            ))}
+      <section className="rounded-2xl bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h2 className="font-extrabold text-[#14213d]">Fluxo financeiro no período</h2>
+            <p className="mt-1 text-xs text-slate-400">
+              {shortPeriod ? "Visão semanal" : "Visão mensal"} · Passe o mouse nas barras para ver os valores.
+            </p>
           </div>
-          <div className="mt-3 flex gap-4 text-xs font-bold">
-            <span className="text-emerald-600">■ Receitas</span>
-            <span className="text-red-600">■ Despesas</span>
-          </div>
-        </section>
-        <section className="rounded-2xl bg-white p-5 shadow-sm">
-          <h2 className="font-extrabold text-[#14213d]">
-            Despesas por categoria
-          </h2>
-          <div className="mt-5 flex items-center gap-5">
-            <div
-              className="h-36 w-36 shrink-0 rounded-full"
-              style={{ background: pie }}
-            />
-            <div className="min-w-0 space-y-2">
-              {expenseCategories.slice(0, 5).map(([label, value]) => (
-                <p
-                  key={label}
-                  className="flex justify-between gap-3 text-xs font-bold"
-                >
-                  <span
-                    className="truncate"
-                    style={{ color: categoryColor("despesa", label) }}
-                  >
-                    {label}
-                  </span>
-                  <span>{fmt(value)}</span>
-                </p>
-              ))}
-              {!expenseCategories.length && (
-                <p className="text-sm text-gray-400">
-                  Sem despesas no período.
-                </p>
-              )}
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
+            {filtered.length} lançamentos
+          </span>
+        </div>
+        {filtered.length && periodBuckets.length ? (
+          <div className="mt-5 overflow-x-auto">
+            <div style={{ minWidth: Math.max(600, periodBuckets.length * 105) }}>
+              <ResponsiveContainer width="100%" height={320}>
+                <BarChart data={periodBuckets} margin={{ top: 8, right: 8, left: 8, bottom: 4 }} barGap={2}>
+                  <CartesianGrid vertical={false} stroke="#e2e8f0" strokeDasharray="3 3" />
+                  <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(value: number) => new Intl.NumberFormat("pt-BR", { notation: "compact" }).format(value)} />
+                  <Tooltip formatter={(value, name) => [fmt(Number(value)), String(name)]} contentStyle={{ borderRadius: 12, borderColor: "#e2e8f0" }} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="Receitas recebidas" stackId="receita" fill="#059669" radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="Receitas previstas" stackId="receita" fill="#6ee7b7" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="Despesas pagas" stackId="despesa" fill="#dc2626" radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="Despesas previstas" stackId="despesa" fill="#fca5a5" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           </div>
-        </section>
+        ) : <p className="py-12 text-center text-sm text-slate-400">Sem lançamentos no período selecionado.</p>}
+      </section>
+      <div className="grid gap-5 xl:grid-cols-2">
+        {([
+          ["Despesas por categoria", expenseDetails, expense],
+          ["Receitas por categoria", incomeDetails, income],
+        ] as const).map(([title, rows, totalValue]) => (
+          <section key={title} className="rounded-2xl bg-white p-5 shadow-sm">
+            <h2 className="font-extrabold text-[#14213d]">{title}</h2>
+            <p className="mt-1 text-xs text-slate-400">Cor do plano de contas · Centro e percentual na legenda.</p>
+            {rows.length ? (
+              <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center">
+                <div className="h-56 w-full shrink-0 sm:w-56">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={rows} dataKey="total" nameKey="name" innerRadius={58} outerRadius={92} paddingAngle={2} stroke="none">
+                        {rows.map((item) => <Cell key={item.key} fill={item.color} />)}
+                      </Pie>
+                      <Tooltip formatter={(value, _name, item) => [fmt(Number(value)), `${item.payload.name} · ${item.payload.unit}`]} contentStyle={{ borderRadius: 12, borderColor: "#e2e8f0" }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="min-w-0 flex-1 space-y-2">
+                  {rows.map((item) => (
+                    <div key={item.key} className="flex items-center gap-2 text-xs">
+                      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: item.color }} />
+                      <span className="min-w-0 flex-1 truncate text-slate-700" title={`${item.name} · ${item.unit}`}>{item.name} <span className="text-slate-400">· {item.unit}</span></span>
+                      <b className="text-slate-800">{totalValue ? Math.round(item.total / totalValue * 100) : 0}%</b>
+                      <span className="w-24 text-right font-bold text-slate-700">{fmt(item.total)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : <p className="py-12 text-center text-sm text-slate-400">Sem dados no período selecionado.</p>}
+          </section>
+        ))}
       </div>
       <section className="rounded-2xl bg-white p-5 shadow-sm">
-        <h2 className="font-extrabold text-[#14213d]">
-          Receitas por categoria
-        </h2>
-        <div className="mt-5 flex items-center gap-5">
-          <div
-            className="h-36 w-36 shrink-0 rounded-full"
-            style={{ background: incomePie }}
-          />
-          <div className="min-w-0 space-y-2">
-            {incomeCategories.slice(0, 5).map(([label, value]) => (
-              <p
-                key={label}
-                className="flex justify-between gap-3 text-xs font-bold"
-              >
-                <span
-                  className="truncate"
-                  style={{ color: categoryColor("receita", label) }}
-                >
-                  {label}
-                </span>
-                <span>{fmt(value)}</span>
-              </p>
-            ))}
-            {!incomeCategories.length && (
-              <p className="text-sm text-gray-400">Sem receitas no período.</p>
-            )}
+        <h2 className="font-extrabold text-[#14213d]">Detalhamento por categoria</h2>
+        <p className="mt-1 text-xs text-slate-400">Total, situação, vencidos e quantidade de lançamentos no período.</p>
+        {categoryDetails.length ? (
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[760px] text-left text-xs">
+              <thead className="border-b bg-slate-50 text-slate-500">
+                <tr><th className="p-3">Categoria</th><th className="p-3">Centro</th><th className="p-3">Tipo</th><th className="p-3 text-right">Realizado</th><th className="p-3 text-right">Em aberto</th><th className="p-3 text-right">Vencido</th><th className="p-3 text-right">Total</th><th className="p-3 text-right">Lançamentos</th></tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {categoryDetails.map((item) => (
+                  <tr key={item.key} className="hover:bg-slate-50">
+                    <td className="p-3 font-bold text-slate-800"><span className="mr-2 inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />{item.name}</td>
+                    <td className="p-3 text-slate-600">{item.unit}</td>
+                    <td className="p-3 text-slate-600">{item.kind === "despesa" ? "Despesa" : "Receita"}</td>
+                    <td className="p-3 text-right">{fmt(item.realized)}</td>
+                    <td className="p-3 text-right">{fmt(item.pending)}</td>
+                    <td className="p-3 text-right font-bold text-red-600">{fmt(item.overdue)}</td>
+                    <td className="p-3 text-right font-extrabold text-slate-900">{fmt(item.total)}</td>
+                    <td className="p-3 text-right">{item.count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </div>
+        ) : <p className="py-8 text-center text-sm text-slate-400">Sem categorias com movimento no período.</p>}
       </section>
       <div className="grid gap-5 xl:grid-cols-2">
         <section className="rounded-2xl bg-white p-5 shadow-sm">
-          <h2 className="font-extrabold text-[#14213d]">
-            Categorias que mais movimentam
-          </h2>
-          <div className="mt-4 divide-y">
-            {byCategory.slice(0, 8).map(([label, value]) => (
-              <div
-                key={label}
-                className="flex justify-between gap-4 py-3 text-sm"
-              >
-                <span className="font-bold text-gray-700">{label}</span>
-                <span className="font-extrabold text-slate-900">
-                  {fmt(value)}
-                </span>
+          <h2 className="font-extrabold text-[#14213d]">Maiores categorias de despesa</h2>
+          <p className="mt-1 text-xs text-slate-400">Comparação das categorias com maior peso no período.</p>
+          {expenseDetails.length ? (
+            <>
+              <div className="mt-4 overflow-x-auto">
+                <div style={{ minWidth: 400 }}>
+                  <ResponsiveContainer width="100%" height={Math.max(240, Math.min(expenseDetails.length, 8) * 42 + 45)}>
+                    <BarChart data={expenseDetails.slice(0, 8).reverse().map((item) => ({ ...item, label: `${item.name} · ${item.unit}` }))} layout="vertical" margin={{ left: 6, right: 20 }}>
+                      <CartesianGrid horizontal={false} stroke="#e2e8f0" strokeDasharray="3 3" />
+                      <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={(value: number) => new Intl.NumberFormat("pt-BR", { notation: "compact" }).format(value)} />
+                      <YAxis type="category" dataKey="label" width={155} tick={{ fontSize: 10 }} />
+                      <Tooltip formatter={(value) => fmt(Number(value))} contentStyle={{ borderRadius: 12, borderColor: "#e2e8f0" }} />
+                      <Bar dataKey="total" name="Despesa" radius={[0, 5, 5, 0]}>
+                        {expenseDetails.slice(0, 8).reverse().map((item) => <Cell key={item.key} fill={item.color} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+              <div className="mt-5 divide-y divide-slate-100 border-t border-slate-100">
+                {expenseDetails.slice(0, 8).map((item) => (
+                  <div key={item.key} className="flex flex-wrap items-center justify-between gap-2 py-3 text-xs">
+                    <span className="font-bold text-slate-800"><span className="mr-2 inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />{item.name} <span className="font-normal text-slate-400">· {item.unit}</span></span>
+                    <span className="text-slate-500">{item.count} lançamentos · Pago {fmt(item.realized)} · A pagar {fmt(item.pending)}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : <p className="py-10 text-center text-sm text-slate-400">Sem despesas no período.</p>}
+        </section>
+        <section className="rounded-2xl bg-white p-5 shadow-sm">
+          <h2 className="font-extrabold text-[#14213d]">Maiores despesas individuais</h2>
+          <p className="mt-1 text-xs text-slate-400">Lançamentos de maior valor, inclusive parcelas e recorrências.</p>
+          <div className="mt-4 divide-y divide-slate-100">
+            {largestExpenses.map((entry) => (
+              <div key={entry.id} className="flex items-center justify-between gap-3 py-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-bold text-slate-800" title={entry.description}>{entry.description}</p>
+                  <p className="truncate text-xs text-slate-400">{entry.category} · {entry.unit} · {dateLabel(entry.date)}</p>
+                  <p className="text-[11px] text-slate-400">{entry.status === "realizado" ? "Pago" : entry.date < todayKey ? "Vencido" : "A pagar"}{entry.installment ? ` · Parcela ${entry.installment}` : entry.recurrence === "mensal" ? " · Recorrente" : ""}</p>
+                </div>
+                <b className="shrink-0 text-sm text-red-600">{fmt(entry.amount)}</b>
               </div>
             ))}
-            {!byCategory.length && (
-              <p className="py-5 text-sm text-gray-400">
-                Sem dados para os filtros selecionados.
-              </p>
-            )}
+            {!largestExpenses.length && <p className="py-5 text-sm text-slate-400">Sem despesas no período.</p>}
           </div>
         </section>
+      </div>
+      <div>
         <section className="rounded-2xl bg-white p-5 shadow-sm">
           <h2 className="font-extrabold text-[#14213d]">{counterpartyTitle}</h2>
           <p className="mt-1 text-xs text-gray-400">
@@ -2194,11 +2253,11 @@ function Reports({
       </div>
       <section className="rounded-2xl bg-white p-5 shadow-sm">
         <h2 className="font-extrabold text-[#14213d]">
-          Saldos realizados por conta
+          Movimento realizado por conta no período
         </h2>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {accountRows.map((item) => (
-            <div key={item.name} className="rounded-xl border p-4">
+            <div key={`${item.unit}:${item.name}`} className="rounded-xl border p-4">
               <p className="font-bold text-slate-800">{item.name}</p>
               <p className="text-xs text-gray-400">{item.unit}</p>
               <p
