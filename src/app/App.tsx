@@ -1302,6 +1302,7 @@ function UsersAdmin({
   createUser,
   resetPassword,
   toggleReports,
+  updatePermissions,
 }: {
   users: User[];
   reload: () => Promise<void>;
@@ -1314,6 +1315,11 @@ function UsersAdmin({
   }) => Promise<void>;
   resetPassword: (user: User) => Promise<void>;
   toggleReports: (user: User) => Promise<void>;
+  updatePermissions: (
+    user: User,
+    units: Unit[],
+    canViewReports: boolean,
+  ) => Promise<void>;
 }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -1323,6 +1329,10 @@ function UsersAdmin({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [editUnits, setEditUnits] = useState<Unit[]>([]);
+  const [editCanViewReports, setEditCanViewReports] = useState(false);
+  const [savingPermissions, setSavingPermissions] = useState(false);
   const toggleUnit = (unit: Unit) =>
     setSelectedUnits((current) =>
       current.includes(unit)
@@ -1341,6 +1351,36 @@ function UsersAdmin({
           ? recoverError.message
           : "Não foi possível enviar o link de redefinição.",
       );
+    }
+  };
+  const startEditingPermissions = (user: User) => {
+    setError("");
+    setMessage("");
+    setEditingUserId(user.id);
+    setEditUnits(user.units);
+    setEditCanViewReports(user.canViewReports);
+  };
+  const toggleEditUnit = (unit: Unit) =>
+    setEditUnits((current) =>
+      current.includes(unit)
+        ? current.filter((item) => item !== unit)
+        : [...current, unit],
+    );
+  const savePermissions = async (user: User) => {
+    setSavingPermissions(true);
+    setError("");
+    try {
+      await updatePermissions(user, editUnits, editCanViewReports);
+      setEditingUserId(null);
+      setMessage(`Permissões de ${user.name} atualizadas.`);
+    } catch (permissionError) {
+      setError(
+        permissionError instanceof Error
+          ? permissionError.message
+          : "Não foi possível atualizar as permissões.",
+      );
+    } finally {
+      setSavingPermissions(false);
     }
   };
   const submit = async (event: FormEvent) => {
@@ -1479,52 +1519,107 @@ function UsersAdmin({
           {users.map((user) => (
             <div
               key={user.id}
-              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4"
+              className="rounded-xl border p-4"
             >
-              <div>
-                <p className="font-bold text-slate-900">{user.name}</p>
-                <p className="text-xs text-gray-400">
-                  {user.email || "E-mail não informado"} ·{" "}
-                  {user.role === "master" ? "Master" : "Operador"}
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {user.role === "master" ? (
-                  <span className="rounded-full bg-blue-700 px-2 py-1 text-xs font-bold text-white">
-                    Todos os centros
-                  </span>
-                ) : (
-                  <>
-                    {user.units.map((unit) => (
-                      <span
-                        key={unit}
-                        className="rounded-full bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700"
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="font-bold text-slate-900">{user.name}</p>
+                  <p className="text-xs text-gray-400">
+                    {user.email || "E-mail não informado"} ·{" "}
+                    {user.role === "master" ? "Master" : "Operador"}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {user.role === "master" ? (
+                    <span className="rounded-full bg-blue-700 px-2 py-1 text-xs font-bold text-white">
+                      Todos os centros
+                    </span>
+                  ) : (
+                    <>
+                      {user.units.map((unit) => (
+                        <span
+                          key={unit}
+                          className="rounded-full bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700"
+                        >
+                          {unit}
+                        </span>
+                      ))}
+                      {user.canViewReports && (
+                        <span className="rounded-full bg-violet-50 px-2 py-1 text-xs font-bold text-violet-700">
+                          Relatórios
+                        </span>
+                      )}
+                      <button
+                        onClick={() => startEditingPermissions(user)}
+                        className="rounded-lg border border-blue-200 px-2.5 py-1.5 text-xs font-bold text-blue-700"
                       >
-                        {unit}
-                      </span>
-                    ))}
-                    {user.canViewReports && (
-                      <span className="rounded-full bg-violet-50 px-2 py-1 text-xs font-bold text-violet-700">
-                        Relatórios
-                      </span>
-                    )}
-                    <button
-                      onClick={() => void toggleReports(user)}
-                      className="rounded-lg border border-violet-200 px-2.5 py-1.5 text-xs font-bold text-violet-700"
-                    >
-                      {user.canViewReports
-                        ? "Remover relatórios"
-                        : "Autorizar relatórios"}
-                    </button>
-                    <button
-                      onClick={() => void recover(user)}
-                      className="rounded-lg border border-amber-200 px-2.5 py-1.5 text-xs font-bold text-amber-700"
-                    >
-                      Redefinir senha
-                    </button>
-                  </>
-                )}
+                        Editar permissões
+                      </button>
+                      <button
+                        onClick={() => void toggleReports(user)}
+                        className="rounded-lg border border-violet-200 px-2.5 py-1.5 text-xs font-bold text-violet-700"
+                      >
+                        {user.canViewReports
+                          ? "Remover relatórios"
+                          : "Autorizar relatórios"}
+                      </button>
+                      <button
+                        onClick={() => void recover(user)}
+                        className="rounded-lg border border-amber-200 px-2.5 py-1.5 text-xs font-bold text-amber-700"
+                      >
+                        Redefinir senha
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
+              {user.role !== "master" && editingUserId === user.id && (
+                <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50/60 p-3">
+                  <p className="text-xs font-extrabold text-slate-800">
+                    Centros de custo que {user.name} pode visualizar e movimentar
+                  </p>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    {units.map((unit) => (
+                      <label
+                        key={unit.name}
+                        className="flex cursor-pointer items-center gap-2 rounded-lg border bg-white p-2 text-xs font-bold text-slate-700"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={editUnits.includes(unit.name)}
+                          onChange={() => toggleEditUnit(unit.name)}
+                        />
+                        {unit.name}
+                      </label>
+                    ))}
+                  </div>
+                  <label className="mt-3 flex cursor-pointer items-center gap-2 text-xs font-bold text-violet-800">
+                    <input
+                      type="checkbox"
+                      checked={editCanViewReports}
+                      onChange={(event) =>
+                        setEditCanViewReports(event.target.checked)
+                      }
+                    />
+                    Permitir acesso à aba Relatórios
+                  </label>
+                  <div className="mt-3 flex justify-end gap-2">
+                    <button
+                      onClick={() => setEditingUserId(null)}
+                      className="rounded-lg border bg-white px-3 py-2 text-xs font-bold text-slate-600"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      disabled={savingPermissions || !editUnits.length}
+                      onClick={() => void savePermissions(user)}
+                      className="rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-60"
+                    >
+                      {savingPermissions ? "Salvando..." : "Salvar permissões"}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
           {!users.length && (
@@ -2399,6 +2494,23 @@ function App() {
     if (error) throw error;
     await loadUsers();
   };
+  const updateManagedUserPermissions = async (
+    user: User,
+    allowedUnits: Unit[],
+    canViewReports: boolean,
+  ) => {
+    const { error } = await supabase
+      .from("profiles")
+      .update({
+        allowed_units: [
+          ...allowedUnits,
+          ...(canViewReports ? [reportsAccessFlag] : []),
+        ],
+      })
+      .eq("id", user.id);
+    if (error) throw error;
+    await loadUsers();
+  };
   const logout = () => {
     // The interface must release the current operation immediately. The remote
     // sign-out can finish in the background and must not leave the user stuck
@@ -3105,6 +3217,7 @@ function App() {
               createUser={createManagedUser}
               resetPassword={resetManagedUserPassword}
               toggleReports={toggleManagedUserReports}
+              updatePermissions={updateManagedUserPermissions}
             />
           ) : screen === "categorias" ? (
             <section className="rounded-2xl bg-white p-5 shadow-sm">
