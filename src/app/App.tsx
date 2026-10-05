@@ -211,6 +211,11 @@ const recurringOccurrenceId = (seriesId: string, date: string, slot = "") => {
 };
 const fmt = (n: number) =>
   n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const counterpartyKey = (kind: Kind, name: string) =>
+  JSON.stringify([
+    kind,
+    name.trim().replace(/\s+/g, " ").toLocaleLowerCase("pt-BR"),
+  ]);
 const parseMoney = (value: string) => {
   const raw = value.replace(/R\$\s?/gi, "").replace(/\s/g, "");
   if (!raw) return NaN;
@@ -1689,6 +1694,11 @@ function Entries({
                   {x.unit} · {x.category} · {x.account} ·{" "}
                   {new Date(`${x.date}T12:00:00`).toLocaleDateString("pt-BR")}
                 </p>
+                {x.beneficiary?.trim() && (
+                  <p className="mt-1 text-xs font-medium text-slate-600">
+                    {x.kind === "despesa" ? "Fornecedor / favorecido" : "Cliente / pagador"}: {x.beneficiary.trim()}
+                  </p>
+                )}
                 {(x.pix || x.notes) && (
                   <div className="mt-1 space-y-0.5 text-xs">
                     {x.pix && (
@@ -2302,6 +2312,7 @@ function App() {
     [entryFilter, setEntryFilter] = useState<
       "todos" | "pagar" | "receber" | "atrasadas"
     >("todos"),
+    [counterpartyFilter, setCounterpartyFilter] = useState("todos"),
     [overdueKind, setOverdueKind] = useState<Kind | "todos">("todos"),
     [notificationsOpen, setNotificationsOpen] = useState(false),
     [menu, setMenu] = useState(false),
@@ -2704,6 +2715,7 @@ function App() {
       setMonth((v) => new Date(v.getFullYear(), v.getMonth() + n, 1)),
     openOverdue = (kind: Kind | "todos" = "todos") => {
       setFilter("Todos");
+      setCounterpartyFilter("todos");
       setOverdueKind(kind);
       setEntryFilter("atrasadas");
       setNotificationsOpen(false);
@@ -2715,6 +2727,7 @@ function App() {
         return;
       }
       setFilter("Todos");
+      setCounterpartyFilter("todos");
       setEntryFilter(entry.kind === "despesa" ? "pagar" : "receber");
       setMonth(new Date(`${entry.date}T12:00:00`));
       setNotificationsOpen(false);
@@ -2850,6 +2863,7 @@ function App() {
     },
     open = (kind: Kind) => {
       setFilter("Todos");
+      setCounterpartyFilter("todos");
       setEditing(null);
       setModal(kind);
       setScreen("lancamentos");
@@ -2867,7 +2881,33 @@ function App() {
             x.status === "previsto") ||
           (entryFilter === "atrasadas" &&
             (overdueKind === "todos" || x.kind === overdueKind)),
+      )
+      .filter(
+        (x) =>
+          counterpartyFilter === "todos" ||
+          counterpartyKey(x.kind, x.beneficiary || "") === counterpartyFilter,
       ),
+    counterparties = Array.from(
+      new Map<string, { key: string; kind: Kind; name: string }>(
+        visible
+          .filter((x) => x.beneficiary?.trim())
+          .map((x): [string, { key: string; kind: Kind; name: string }] => [
+            counterpartyKey(x.kind, x.beneficiary),
+            {
+              key: counterpartyKey(x.kind, x.beneficiary),
+              kind: x.kind,
+              name: x.beneficiary.trim(),
+            },
+          ]),
+      ).values(),
+    ).sort((a, b) => a.name.localeCompare(b.name, "pt-BR")),
+    listTotals = list.reduce(
+      (totals, entry) => {
+        totals[entry.kind] += entry.amount;
+        return totals;
+      },
+      { receita: 0, despesa: 0 },
+    ),
     byUnit = allowedUnits.map((u) => ({
       ...u,
       categories: categories.filter((c) => c.unit === u.name),
@@ -2916,6 +2956,7 @@ function App() {
                   setScreen(x.id);
                   if (x.id === "lancamentos") {
                     setFilter("Todos");
+                    setCounterpartyFilter("todos");
                     setEntryFilter("todos");
                     setOverdueKind("todos");
                   }
@@ -3622,8 +3663,51 @@ function App() {
                       </button>
                     ))}
                   </div>
+                  <label className="flex flex-wrap items-center gap-2 text-[11px] font-bold uppercase tracking-wide text-gray-400">
+                    Fornecedor / favorecido ou cliente / pagador:
+                    <select
+                      value={counterpartyFilter}
+                      onChange={(event) => setCounterpartyFilter(event.target.value)}
+                      className="max-w-full min-w-52 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold normal-case tracking-normal text-gray-700"
+                    >
+                      <option value="todos">Todos</option>
+                      {(["despesa", "receita"] as Kind[]).map((kind) => (
+                        <optgroup
+                          key={kind}
+                          label={kind === "despesa" ? "Fornecedores / favorecidos" : "Clientes / pagadores"}
+                        >
+                          {counterparties
+                            .filter((person) => person.kind === kind)
+                            .map((person) => (
+                              <option key={person.key} value={person.key}>
+                                {person.name}
+                              </option>
+                            ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                  </label>
                 </div>
                 <Month value={month} move={move} />
+              </div>
+              <div className="mb-5 grid gap-3 rounded-xl border border-blue-100 bg-blue-50/50 p-4 sm:grid-cols-3">
+                <div>
+                  <p className="text-xs font-bold text-gray-500">Receitas exibidas</p>
+                  <p className="text-lg font-extrabold text-emerald-700">{fmt(listTotals.receita)}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-gray-500">Despesas exibidas</p>
+                  <p className="text-lg font-extrabold text-red-600">{fmt(listTotals.despesa)}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-gray-500">Total dos lançamentos exibidos</p>
+                  <p className="text-lg font-extrabold text-[#14213d]">
+                    {fmt(listTotals.receita + listTotals.despesa)}
+                  </p>
+                  <p className="text-[11px] text-gray-500">
+                    {list.length} {list.length === 1 ? "lançamento" : "lançamentos"} · previstos e realizados
+                  </p>
+                </div>
               </div>
               <Entries
                 entries={list}
