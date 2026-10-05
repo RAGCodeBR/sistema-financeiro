@@ -84,6 +84,34 @@ export async function saveRemoteCategory(category: any) {
   await withFreshSession(() => supabase.from("categories").upsert(category));
 }
 
+export async function createRemoteCostCenter(name: string, initials: string, color: string) {
+  return withFreshSession(() =>
+    supabase.from("cost_centers")
+      .insert({ name, initials, color })
+      .select("name, initials, color")
+      .single(),
+  );
+}
+
+export async function updateRemoteCostCenter(
+  name: string,
+  patch: { initials: string; color: string },
+) {
+  return withFreshSession(() =>
+    supabase.from("cost_centers")
+      .update(patch)
+      .eq("name", name)
+      .select("name, initials, color")
+      .single(),
+  );
+}
+
+export async function deleteRemoteCostCenter(name: string) {
+  return withFreshSession(() =>
+    supabase.from("cost_centers").delete().eq("name", name),
+  );
+}
+
 export async function saveRemoteCounterparty(counterparty: any) {
   if (!uuid(counterparty.id)) throw new Error("Cadastro inválido.");
   return withFreshSession(() =>

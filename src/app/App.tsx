@@ -6,6 +6,9 @@ import {
   supabaseUrl,
 } from "../lib/supabase";
 import {
+  createRemoteCostCenter,
+  updateRemoteCostCenter,
+  deleteRemoteCostCenter,
   deleteRemoteCategory,
   deleteRemoteEntries,
   deleteRemoteEntrySeries,
@@ -49,7 +52,15 @@ import {
 } from "recharts";
 
 type Kind = "receita" | "despesa";
-type Unit = "Marketing" | "Sítio" | "Consultoria" | "Pessoa Física";
+type Unit = string;
+type CostCenter = {
+  name: Unit;
+  initials: string;
+  colorKey: string;
+  color: string;
+  tint: string;
+};
+type CostCenterRow = { name: Unit; initials: string; color?: string };
 type Entry = {
   id: string;
   seriesId?: string;
@@ -94,42 +105,50 @@ type User = {
   units: Unit[];
   canViewReports: boolean;
 };
-const units: { name: Unit; initials: string; color: string; tint: string }[] = [
-  {
-    name: "Marketing",
-    initials: "MK",
-    color: "bg-fuchsia-600",
-    tint: "border-fuchsia-100 bg-fuchsia-50",
-  },
-  {
-    name: "Sítio",
-    initials: "SI",
-    color: "bg-emerald-600",
-    tint: "border-emerald-100 bg-emerald-50",
-  },
-  {
-    name: "Consultoria",
-    initials: "CO",
-    color: "bg-blue-600",
-    tint: "border-blue-100 bg-blue-50",
-  },
-  {
-    name: "Pessoa Física",
-    initials: "PF",
-    color: "bg-amber-500",
-    tint: "border-amber-100 bg-amber-50",
-  },
+// Paleta fixa de cores para os centros de custo. As classes Tailwind ficam
+// escritas por extenso aqui para que o build as inclua no CSS final.
+type CostCenterColor = { key: string; label: string; swatch: string; color: string; tint: string };
+const costCenterColors: CostCenterColor[] = [
+  { key: "indigo", label: "Índigo", swatch: "#4f46e5", color: "bg-indigo-600", tint: "border-indigo-100 bg-indigo-50" },
+  { key: "blue", label: "Azul", swatch: "#2563eb", color: "bg-blue-600", tint: "border-blue-100 bg-blue-50" },
+  { key: "emerald", label: "Verde", swatch: "#059669", color: "bg-emerald-600", tint: "border-emerald-100 bg-emerald-50" },
+  { key: "teal", label: "Turquesa", swatch: "#0d9488", color: "bg-teal-600", tint: "border-teal-100 bg-teal-50" },
+  { key: "amber", label: "Âmbar", swatch: "#f59e0b", color: "bg-amber-500", tint: "border-amber-100 bg-amber-50" },
+  { key: "orange", label: "Laranja", swatch: "#f97316", color: "bg-orange-500", tint: "border-orange-100 bg-orange-50" },
+  { key: "rose", label: "Rosa", swatch: "#e11d48", color: "bg-rose-600", tint: "border-rose-100 bg-rose-50" },
+  { key: "fuchsia", label: "Magenta", swatch: "#c026d3", color: "bg-fuchsia-600", tint: "border-fuchsia-100 bg-fuchsia-50" },
+  { key: "violet", label: "Violeta", swatch: "#7c3aed", color: "bg-violet-600", tint: "border-violet-100 bg-violet-50" },
+  { key: "slate", label: "Grafite", swatch: "#475569", color: "bg-slate-600", tint: "border-slate-100 bg-slate-50" },
+];
+const costCenterColorByKey = new Map(costCenterColors.map((item) => [item.key, item]));
+const resolveCostCenterColor = (key: string | undefined) =>
+  costCenterColorByKey.get(key || "") ?? costCenterColors[0];
+const makeCostCenter = (name: Unit, initials: string, colorKey: string): CostCenter => {
+  const palette = resolveCostCenterColor(colorKey);
+  return { name, initials, colorKey: palette.key, color: palette.color, tint: palette.tint };
+};
+const units: CostCenter[] = [
+  makeCostCenter("Marketing", "MK", "fuchsia"),
+  makeCostCenter("Sítio", "SI", "emerald"),
+  makeCostCenter("Consultoria", "CO", "blue"),
+  makeCostCenter("Pessoa Física", "PF", "amber"),
 ];
 const reportsAccessFlag = "__reports__";
-const allowedUnitValues = units.map((unit) => unit.name);
 const profileAccess = (values: string[] | null | undefined) => {
   const raw = values || [];
   return {
-    units: raw.filter((value): value is Unit =>
-      allowedUnitValues.includes(value as Unit),
-    ),
+    units: raw.filter((value) => value !== reportsAccessFlag),
     canViewReports: raw.includes(reportsAccessFlag),
   };
+};
+const costCenterVisual = (row: CostCenterRow): CostCenter => {
+  const existing = units.find((unit) => unit.name === row.name);
+  const colorKey = row.color || existing?.colorKey || "indigo";
+  return makeCostCenter(
+    row.name,
+    row.initials || row.name.slice(0, 2).toLocaleUpperCase("pt-BR"),
+    colorKey,
+  );
 };
 const defaults: Category[] = [
   {
@@ -865,6 +884,141 @@ function NewCategory({
     </div>
   );
 }
+function CostCenterForm({
+  editing,
+  close,
+  save,
+}: {
+  editing?: CostCenter | null;
+  close: () => void;
+  save: (name: string, initials: string, color: string) => Promise<void>;
+}) {
+  const [name, setName] = useState(editing?.name ?? "");
+  const [initials, setInitials] = useState(editing?.initials ?? "");
+  const [color, setColor] = useState(editing?.colorKey ?? costCenterColors[0].key);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const isEdit = Boolean(editing);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4">
+      <form onSubmit={async (event) => {
+        event.preventDefault();
+        setSaving(true);
+        setError("");
+        try {
+          await save(name.trim().replace(/\s+/g, " "), initials.trim().toLocaleUpperCase("pt-BR"), color);
+          close();
+        } catch (saveError) {
+          setError(saveError instanceof Error ? saveError.message : "Não foi possível salvar o centro de custo.");
+        } finally {
+          setSaving(false);
+        }
+      }} className="w-full max-w-md rounded-2xl bg-white shadow-2xl">
+        <header className="flex items-start justify-between border-b px-6 py-4">
+          <div>
+            <h2 className="font-extrabold text-[#14213d]">{isEdit ? "Editar plano de contas" : "Novo plano de contas"}</h2>
+            <p className="mt-1 text-xs text-slate-500">{isEdit ? "Ajuste a sigla e a cor deste centro de custo." : "Cria um centro de custo com categorias próprias."}</p>
+          </div>
+          <button type="button" onClick={close} aria-label="Fechar"><X className="h-5 w-5" /></button>
+        </header>
+        <div className="space-y-4 p-6">
+          <label className="block text-xs font-bold text-slate-700">Nome do centro de custo
+            <input required minLength={2} maxLength={80} value={name} disabled={isEdit} onChange={(event) => setName(event.target.value)} placeholder="Ex.: Nova operação" className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal disabled:cursor-not-allowed disabled:text-slate-400" />
+            {isEdit && <span className="mt-1 block font-normal text-slate-400">O nome não pode ser alterado.</span>}
+          </label>
+          <label className="block text-xs font-bold text-slate-700">Sigla (opcional)
+            <input maxLength={4} value={initials} onChange={(event) => setInitials(event.target.value)} placeholder="Ex.: NO" className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal" />
+          </label>
+          <div className="text-xs font-bold text-slate-700">Cor do plano
+            <div className="mt-2 flex flex-wrap gap-2">
+              {costCenterColors.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => setColor(item.key)}
+                  aria-label={item.label}
+                  aria-pressed={color === item.key}
+                  title={item.label}
+                  className={`h-8 w-8 rounded-full border-2 transition ${color === item.key ? "border-slate-900 ring-2 ring-slate-300" : "border-white"}`}
+                  style={{ backgroundColor: item.swatch }}
+                />
+              ))}
+            </div>
+          </div>
+          {!isEdit && <p className="text-xs text-slate-500">Depois de criar, use “Nova categoria” para cadastrar as receitas e despesas deste plano.</p>}
+          {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>}
+        </div>
+        <footer className="flex gap-3 border-t bg-gray-50 px-6 py-4">
+          <button type="button" onClick={close} className="flex-1 rounded-xl border py-2.5 text-sm font-bold">Cancelar</button>
+          <button disabled={saving} className="flex-1 rounded-xl bg-blue-700 py-2.5 text-sm font-bold text-white disabled:opacity-50">{saving ? "Salvando…" : isEdit ? "Salvar alterações" : "Criar plano"}</button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+function DeleteCostCenter({
+  center,
+  categoryCount,
+  entryCount,
+  close,
+  confirm,
+}: {
+  center: CostCenter;
+  categoryCount: number;
+  entryCount: number;
+  close: () => void;
+  confirm: () => Promise<void>;
+}) {
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const matches = typed.trim() === center.name;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4">
+      <form onSubmit={async (event) => {
+        event.preventDefault();
+        if (!matches) return;
+        setBusy(true);
+        setError("");
+        try {
+          await confirm();
+          close();
+        } catch (deleteError) {
+          setError(deleteError instanceof Error ? deleteError.message : "Não foi possível excluir o plano.");
+        } finally {
+          setBusy(false);
+        }
+      }} className="w-full max-w-md rounded-2xl bg-white shadow-2xl">
+        <header className="flex items-start justify-between border-b px-6 py-4">
+          <div>
+            <h2 className="font-extrabold text-red-700">Excluir “{center.name}”</h2>
+            <p className="mt-1 text-xs text-slate-500">Esta ação não pode ser desfeita.</p>
+          </div>
+          <button type="button" onClick={close} aria-label="Fechar"><X className="h-5 w-5" /></button>
+        </header>
+        <div className="space-y-4 p-6">
+          <div className="rounded-xl bg-red-50 p-3 text-xs font-bold text-red-700">
+            Ao excluir este plano, também serão apagados <b>permanentemente</b>:
+            <ul className="mt-2 list-disc pl-4 font-normal">
+              <li>{categoryCount} categoria(s)</li>
+              <li>{entryCount} lançamento(s)</li>
+              <li>as contas e os favorecidos deste centro</li>
+            </ul>
+          </div>
+          <label className="block text-xs font-bold text-slate-700">Para confirmar, digite o nome do plano: <span className="text-red-600">{center.name}</span>
+            <input value={typed} onChange={(event) => setTyped(event.target.value)} placeholder={center.name} className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal" />
+          </label>
+          {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>}
+        </div>
+        <footer className="flex gap-3 border-t bg-gray-50 px-6 py-4">
+          <button type="button" onClick={close} className="flex-1 rounded-xl border py-2.5 text-sm font-bold">Cancelar</button>
+          <button disabled={!matches || busy} className="flex-1 rounded-xl bg-red-600 py-2.5 text-sm font-bold text-white disabled:opacity-50">{busy ? "Excluindo…" : "Excluir tudo"}</button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
 function ContactsScreen({
   contacts,
   allowedUnits,
@@ -1133,7 +1287,7 @@ function EntryForm({
   ) => Promise<void>;
 }) {
   const [kind, setKind] = useState<Kind>(editing?.kind ?? initial),
-    [unit, setUnit] = useState<Unit>(editing?.unit ?? "Consultoria"),
+    [unit, setUnit] = useState<Unit>(editing?.unit ?? allowedUnits[0]?.name ?? "Consultoria"),
     [category, setCategory] = useState(editing?.category ?? ""),
     [description, setDescription] = useState(editing?.description ?? ""),
     [beneficiary, setBeneficiary] = useState(editing?.beneficiary ?? ""),
@@ -1735,6 +1889,7 @@ function EntryForm({
 }
 function UsersAdmin({
   users,
+  centers,
   reload,
   createUser,
   resetPassword,
@@ -1742,6 +1897,7 @@ function UsersAdmin({
   updatePermissions,
 }: {
   users: User[];
+  centers: CostCenter[];
   reload: () => Promise<void>;
   createUser: (data: {
     name: string;
@@ -1901,7 +2057,7 @@ function UsersAdmin({
               Centros de custo permitidos
             </legend>
             <div className="mt-2 grid grid-cols-2 gap-2">
-              {units.map((unit) => (
+              {centers.map((unit) => (
                 <label
                   key={unit.name}
                   className={`flex cursor-pointer items-center gap-2 rounded-xl border p-3 text-xs font-bold ${selectedUnits.includes(unit.name) ? "border-blue-300 bg-blue-50 text-blue-800" : "bg-white text-gray-600"}`}
@@ -2016,7 +2172,7 @@ function UsersAdmin({
                     Centros de custo que {user.name} pode visualizar e movimentar
                   </p>
                   <div className="mt-3 grid grid-cols-2 gap-2">
-                    {units.map((unit) => (
+                    {centers.map((unit) => (
                       <label
                         key={unit.name}
                         className="flex cursor-pointer items-center gap-2 rounded-lg border bg-white p-2 text-xs font-bold text-slate-700"
@@ -2851,6 +3007,9 @@ function App() {
     [authReady, setAuthReady] = useState(false),
     [modal, setModal] = useState<Kind | null>(null),
     [categoryModal, setCategoryModal] = useState(false),
+    [centerModal, setCenterModal] = useState(false),
+    [editingCenter, setEditingCenter] = useState<CostCenter | null>(null),
+    [deletingCenter, setDeletingCenter] = useState<CostCenter | null>(null),
     [editingCategory, setEditingCategory] = useState<Category | null>(null),
     [deletingCategory, setDeletingCategory] = useState<Category | null>(null),
     [editing, setEditing] = useState<Entry | null>(null),
@@ -2863,6 +3022,8 @@ function App() {
     [savedContacts, setSavedContacts] = useState<Counterparty[]>([]),
     [contactsTableReady, setContactsTableReady] = useState(false),
     [categories, setCategories] = useState<Category[]>([]),
+    [centers, setCenters] = useState<CostCenter[]>(units),
+    [centerTableReady, setCenterTableReady] = useState(false),
     [accounts, setAccounts] = useState<Account[]>(() =>
       units.map((unit) => ({
         id: unit.name,
@@ -2872,7 +3033,7 @@ function App() {
     ),
     [filter, setFilter] = useState<Unit | "Todos">("Todos"),
     [entryFilter, setEntryFilter] = useState<
-      "todos" | "pagar" | "receber" | "atrasadas"
+      "todos" | "pagar" | "receber" | "pagas" | "recebidas" | "atrasadas"
     >("todos"),
     [counterpartyFilter, setCounterpartyFilter] = useState("todos"),
     [overdueKind, setOverdueKind] = useState<Kind | "todos">("todos"),
@@ -2939,6 +3100,8 @@ function App() {
       setDataReady(false);
       setSavedContacts([]);
       setContactsTableReady(false);
+      setCenters(units);
+      setCenterTableReady(false);
       return () => {
         active = false;
       };
@@ -2987,6 +3150,14 @@ function App() {
         } catch (contactError) {
           console.info("Fincore: cadastro de contatos ainda indisponível", contactError);
         }
+        let centerRows: CostCenterRow[] = [];
+        let centerTableAvailable = false;
+        try {
+          centerRows = await readAuthenticatedRows<CostCenterRow>("cost_centers");
+          centerTableAvailable = true;
+        } catch (centerError) {
+          console.info("Fincore: cadastro de centros ainda indisponível", centerError);
+        }
         // Keep recurring series alive without pre-creating decades of records.
         // Only missing months inside the rolling three-year window are written.
         const projectedEntries = nextRecurringEntries(loadedEntries);
@@ -3008,6 +3179,8 @@ function App() {
         setEntries(entriesToShow);
         setSavedContacts(contactRows);
         setContactsTableReady(contactTableAvailable);
+        setCenters(centerTableAvailable ? centerRows.map(costCenterVisual) : units);
+        setCenterTableReady(centerTableAvailable);
         setCategories(categoryRows);
         setAccounts(
           accountRows.map((row: any) => ({
@@ -3030,6 +3203,40 @@ function App() {
       active = false;
     };
   }, [currentUser?.id]);
+  useEffect(() => {
+    if (!currentUser || !dataReady || dataError) return;
+    let cancelled = false;
+    let busy = false;
+    const refreshEntries = async () => {
+      if (busy || document.visibilityState === "hidden") return;
+      busy = true;
+      try {
+        const rows = await readAuthenticatedRows<any>("entries", "date.desc");
+        if (!cancelled) {
+          setEntries(rows.map((row: any) => ({
+            ...row,
+            seriesId: row.series_id || undefined,
+            counterpartyId: row.counterparty_id ?? undefined,
+            amount: Number(row.amount),
+          })) as Entry[]);
+        }
+      } catch (error) {
+        console.error("Fincore: falha ao atualizar lançamentos", error);
+      } finally {
+        busy = false;
+      }
+    };
+    const onVisible = () => { if (document.visibilityState === "visible") void refreshEntries(); };
+    window.addEventListener("focus", onVisible);
+    document.addEventListener("visibilitychange", onVisible);
+    const interval = window.setInterval(() => void refreshEntries(), 60_000);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", onVisible);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.clearInterval(interval);
+    };
+  }, [currentUser?.id, dataReady, dataError]);
   const loadUsers = async () => {
     const { data } = await supabase
       .from("profiles")
@@ -3056,6 +3263,45 @@ function App() {
     await deleteRemoteCategory(category.id);
     setCategories((old) => old.filter((item) => item.id !== category.id));
     setDeletingCategory(null);
+  };
+  const createCenter = async (name: string, initials: string, color: string) => {
+    if (currentUser?.role !== "master") throw new Error("Apenas o Master pode criar planos de contas.");
+    if (!centerTableReady) throw new Error("A configuração do banco para novos centros ainda não está disponível.");
+    if (name.length < 2 || name.length > 80 || name === "Todos" || name === reportsAccessFlag)
+      throw new Error("Informe um nome válido entre 2 e 80 caracteres.");
+    if (centers.some((center) => center.name.toLocaleLowerCase("pt-BR") === name.toLocaleLowerCase("pt-BR")))
+      throw new Error("Já existe um centro de custo com esse nome.");
+    const saved = await createRemoteCostCenter(name, initials || name.slice(0, 2).toLocaleUpperCase("pt-BR"), color);
+    const center = costCenterVisual(saved as CostCenterRow);
+    setCenters((old) => [...old, center]);
+    try {
+      const accountRows = await readAuthenticatedRows<Account>("accounts");
+      setAccounts(accountRows);
+    } catch (error) {
+      console.error("Fincore: centro criado, mas falhou a atualização das contas", error);
+      setAccounts((old) => [...old, { id: center.name, name: center.name, unit: center.name }]);
+    }
+  };
+  const updateCenter = async (name: string, initials: string, color: string) => {
+    if (currentUser?.role !== "master") throw new Error("Apenas o Master pode editar planos de contas.");
+    const saved = await updateRemoteCostCenter(name, {
+      initials: initials || name.slice(0, 2).toLocaleUpperCase("pt-BR"),
+      color,
+    });
+    const center = costCenterVisual(saved as CostCenterRow);
+    setCenters((old) => old.map((item) => (item.name === name ? center : item)));
+  };
+  const deleteCenter = async (name: string) => {
+    if (currentUser?.role !== "master") throw new Error("Apenas o Master pode excluir planos de contas.");
+    const { error } = await deleteRemoteCostCenter(name);
+    if (error) throw error;
+    // O banco apaga em cascata; aqui só mantemos a tela em sincronia.
+    setCenters((old) => old.filter((item) => item.name !== name));
+    setCategories((old) => old.filter((item) => item.unit !== name));
+    setEntries((old) => old.filter((item) => item.unit !== name));
+    setAccounts((old) => old.filter((item) => item.unit !== name));
+    setSavedContacts((old) => old.filter((item) => item.unit !== name));
+    setFilter((current) => (current === name ? "Todos" : current));
   };
   useEffect(() => {
     if (currentUser?.role === "master") void loadUsers();
@@ -3218,8 +3464,8 @@ function App() {
     );
   const allowedUnits =
     currentUser.role === "master"
-      ? units
-      : units.filter((unit) => currentUser.units.includes(unit.name));
+      ? centers
+      : centers.filter((unit) => currentUser.units.includes(unit.name));
   const balance = (name: string) =>
       entries
         .filter((x) => x.account === name && x.status === "realizado")
@@ -3229,10 +3475,10 @@ function App() {
       const name = window.prompt("Nome da nova conta:");
       if (!name?.trim()) return;
       const unit = window.prompt(
-        "Centro de custo (Marketing, Sítio, Consultoria ou Pessoa Física):",
-        "Consultoria",
+        `Centro de custo (${centers.map((item) => item.name).join(", ")}):`,
+        centers[0]?.name ?? "",
       ) as Unit | null;
-      if (!unit || !units.some((item) => item.name === unit)) return;
+      if (!unit || !centers.some((item) => item.name === unit)) return;
       const account = { id: id(), name: name.trim(), unit };
       const { error } = await supabase.from("accounts").insert(account);
       if (error) throw error;
@@ -3473,6 +3719,12 @@ function App() {
           (entryFilter === "receber" &&
             x.kind === "receita" &&
             x.status === "previsto") ||
+          (entryFilter === "pagas" &&
+            x.kind === "despesa" &&
+            x.status === "realizado") ||
+          (entryFilter === "recebidas" &&
+            x.kind === "receita" &&
+            x.status === "realizado") ||
           (entryFilter === "atrasadas" &&
             (overdueKind === "todos" || x.kind === overdueKind)),
       )
@@ -3593,6 +3845,8 @@ function App() {
                     ? "Contas"
                     : screen === "categorias"
                       ? "Plano de contas"
+                      : screen === "contatos"
+                        ? "Fornecedores/clientes"
                       : screen === "usuarios"
                         ? "Usuários e acessos"
                         : screen === "relatorios"
@@ -3600,7 +3854,7 @@ function App() {
                           : "Lançamentos"}
               </h1>
               <p className="text-xs text-gray-400">
-                Marketing, Sítio, Consultoria e Pessoa Física
+                {allowedUnits.map((unit) => unit.name).join(", ") || "Centros de custo"}
               </p>
             </div>
           </div>
@@ -3737,50 +3991,39 @@ function App() {
                 </section>
               )}
               <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                {[
-                  [
-                    "Receitas recebidas",
-                    totals.income,
-                    TrendingUp,
-                    "text-emerald-600 bg-emerald-50",
-                  ],
-                  [
-                    "Despesas pagas",
-                    totals.expense,
-                    TrendingDown,
-                    "text-red-600 bg-red-50",
-                  ],
-                  [
-                    "A pagar",
-                    totals.pay,
-                    CreditCard,
-                    "text-orange-600 bg-orange-50",
-                  ],
-                  [
-                    "A receber",
-                    totals.receive,
-                    Wallet,
-                    "text-blue-600 bg-blue-50",
-                  ],
-                ].map(([t, v, I, s]) => {
-                  const C = I as typeof TrendingUp;
+                {([
+                  { title: "Receitas recebidas", value: totals.income, Icon: TrendingUp, style: "text-emerald-600 bg-emerald-50", filter: "recebidas" },
+                  { title: "Despesas pagas", value: totals.expense, Icon: TrendingDown, style: "text-red-600 bg-red-50", filter: "pagas" },
+                  { title: "A pagar", value: totals.pay, Icon: CreditCard, style: "text-orange-600 bg-orange-50", filter: "pagar" },
+                  { title: "A receber", value: totals.receive, Icon: Wallet, style: "text-blue-600 bg-blue-50", filter: "receber" },
+                ] as const).map(({ title, value, Icon: CardIcon, style, filter: targetFilter }) => {
                   return (
-                    <article
-                      key={t as string}
-                      className="rounded-2xl bg-white p-5 shadow-sm"
+                    <button
+                      key={title}
+                      type="button"
+                      onClick={() => {
+                        setFilter("Todos");
+                        setCounterpartyFilter("todos");
+                        setOverdueKind("todos");
+                        setEntryFilter(targetFilter);
+                        setScreen("lancamentos");
+                      }}
+                      aria-label={`${title}: ${fmt(value)}. Ver lançamentos de ${labelMonth(month)}`}
+                      className="rounded-2xl bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
                     >
                       <div
-                        className={`mb-4 flex h-10 w-10 items-center justify-center rounded-xl ${s as string}`}
+                        className={`mb-4 flex h-10 w-10 items-center justify-center rounded-xl ${style}`}
                       >
-                        <C className="h-5 w-5" />
+                        <CardIcon className="h-5 w-5" />
                       </div>
                       <p className="text-xs font-bold text-gray-400">
-                        {t as string}
+                        {title}
                       </p>
                       <p className="mt-1 text-2xl font-extrabold text-[#14213d]">
-                        {fmt(v as number)}
+                        {fmt(value)}
                       </p>
-                    </article>
+                      <p className="mt-2 text-[11px] font-semibold text-blue-700">Ver lançamentos →</p>
+                    </button>
                   );
                 })}
               </section>
@@ -4098,6 +4341,7 @@ function App() {
           ) : screen === "usuarios" ? (
             <UsersAdmin
               users={users}
+              centers={centers}
               reload={loadUsers}
               createUser={createManagedUser}
               resetPassword={resetManagedUserPassword}
@@ -4116,13 +4360,26 @@ function App() {
                     centro.
                   </p>
                 </div>
-                <button
-                  onClick={() => setCategoryModal(true)}
-                  className="flex items-center gap-1 rounded-xl bg-blue-700 px-3 py-2 text-xs font-bold text-white"
-                >
-                  <Plus className="h-4 w-4" />
-                  Nova categoria
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  {currentUser.role === "master" && (
+                    <button
+                      onClick={() => setCenterModal(true)}
+                      disabled={!centerTableReady}
+                      title={!centerTableReady ? "Aplique a migração de centros de custo no banco" : undefined}
+                      className="flex items-center gap-1 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 disabled:opacity-50"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Novo plano / centro
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setCategoryModal(true)}
+                    className="flex items-center gap-1 rounded-xl bg-blue-700 px-3 py-2 text-xs font-bold text-white"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Nova categoria
+                  </button>
+                </div>
               </div>
               <div className="grid gap-4 lg:grid-cols-2">
                 {byUnit.map((u) => (
@@ -4130,13 +4387,13 @@ function App() {
                     key={u.name}
                     className={`rounded-2xl border p-4 ${u.tint}`}
                   >
-                    <div className="mb-4 flex gap-3">
+                    <div className="mb-4 flex items-start gap-3">
                       <div
                         className={`flex h-9 w-9 items-center justify-center rounded-xl text-xs font-bold text-white ${u.color}`}
                       >
                         {u.initials}
                       </div>
-                      <div>
+                      <div className="min-w-0 flex-1">
                         <h3 className="font-extrabold text-[#14213d]">
                           {u.name}
                         </h3>
@@ -4144,6 +4401,24 @@ function App() {
                           Categorias exclusivas
                         </p>
                       </div>
+                      {currentUser.role === "master" && (
+                        <div className="flex shrink-0 gap-1 text-xs font-bold">
+                          <button
+                            onClick={() => setEditingCenter(u)}
+                            className="rounded px-1.5 py-1 text-blue-600 hover:bg-blue-50"
+                            aria-label={`Editar plano ${u.name}`}
+                          >
+                            Editar
+                          </button>
+                          <button
+                            onClick={() => setDeletingCenter(u)}
+                            className="rounded px-1.5 py-1 text-red-600 hover:bg-red-50"
+                            aria-label={`Excluir plano ${u.name}`}
+                          >
+                            Excluir
+                          </button>
+                        </div>
+                      )}
                     </div>
                     {(["receita", "despesa"] as Kind[]).map((k) => (
                       <div key={k} className="mb-3">
@@ -4198,6 +4473,10 @@ function App() {
                       ? "Contas a pagar"
                       : entryFilter === "receber"
                         ? "Contas a receber"
+                        : entryFilter === "pagas"
+                          ? "Despesas pagas"
+                          : entryFilter === "recebidas"
+                            ? "Receitas recebidas"
                         : entryFilter === "atrasadas"
                           ? overdueKind === "despesa"
                             ? "Contas a pagar atrasadas"
@@ -4236,13 +4515,15 @@ function App() {
                       ["todos", "Todos"],
                       ["pagar", "Contas a pagar"],
                       ["receber", "Contas a receber"],
+                      ["pagas", "Despesas pagas"],
+                      ["recebidas", "Receitas recebidas"],
                       ["atrasadas", "Atrasadas"],
                     ].map(([value, label]) => (
                       <button
                         key={value}
                         onClick={() => {
                           setEntryFilter(
-                            value as "todos" | "pagar" | "receber" | "atrasadas",
+                            value as "todos" | "pagar" | "receber" | "pagas" | "recebidas" | "atrasadas",
                           );
                           if (value !== "atrasadas") setOverdueKind("todos");
                         }}
@@ -4357,6 +4638,23 @@ function App() {
           )}
         </div>
       </main>
+      {centerModal && <CostCenterForm close={() => setCenterModal(false)} save={createCenter} />}
+      {editingCenter && (
+        <CostCenterForm
+          editing={editingCenter}
+          close={() => setEditingCenter(null)}
+          save={(_name, initials, color) => updateCenter(editingCenter.name, initials, color)}
+        />
+      )}
+      {deletingCenter && (
+        <DeleteCostCenter
+          center={deletingCenter}
+          categoryCount={categories.filter((item) => item.unit === deletingCenter.name).length}
+          entryCount={entries.filter((item) => item.unit === deletingCenter.name).length}
+          close={() => setDeletingCenter(null)}
+          confirm={() => deleteCenter(deletingCenter.name)}
+        />
+      )}
       {modal && (
         <EntryForm
           kind={modal}
