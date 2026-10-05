@@ -2649,15 +2649,30 @@ function CounterpartyOverview({
 }
 
 function CounterpartyReportPanel({
-  kind, entries, contacts, todayKey,
+  kind, entries, contacts, todayKey, onDrill,
 }: {
   kind: Kind; entries: Entry[]; contacts: Counterparty[]; todayKey: string;
+  onDrill?: (title: string, items: Entry[]) => void;
 }) {
   const rows = summarizeCounterparties(entries, contacts, kind, todayKey);
   const moved = rows.filter((row) => row.count > 0);
   const total = moved.reduce((sum, row) => sum + row.total, 0);
   const unidentified = entries.filter((entry) => entry.kind === kind).reduce((sum, entry) => sum + entry.amount, 0) - total;
   const expense = kind === "despesa";
+  // Resolve a qual fornecedor/cliente cada lançamento pertence, igual ao
+  // agrupamento de summarizeCounterparties, para abrir os lançamentos reais.
+  const matchingContacts = contacts.filter((contact) => contact.kind === kind);
+  const byId = new Map(matchingContacts.map((contact) => [contact.id, contact]));
+  const byName = new Map(matchingContacts.map((contact) => [contactIdentity(kind, contact.unit, contact.name), contact]));
+  const keyForEntry = (entry: Entry) => {
+    const contact = (entry.counterpartyId && byId.get(entry.counterpartyId)) || byName.get(contactIdentity(kind, entry.unit, entry.beneficiary || ""));
+    const name = contact?.name || entry.beneficiary?.trim();
+    if (!name) return null;
+    return contact?.id ?? contactIdentity(kind, entry.unit, name);
+  };
+  const entriesFor = (rowKey: string) => entries.filter((entry) => entry.kind === kind && keyForEntry(entry) === rowKey);
+  const unidentifiedEntries = entries.filter((entry) => entry.kind === kind && keyForEntry(entry) === null);
+  const drill = (title: string, items: Entry[]) => { if (onDrill) onDrill(title, items); };
   return (
     <section className="rounded-2xl bg-white p-5 shadow-sm">
       <h2 className="font-extrabold text-[#14213d]">{expense ? "Relatório por fornecedor" : "Relatório por cliente / pagador"}</h2>
@@ -2665,7 +2680,15 @@ function CounterpartyReportPanel({
       <div className="mt-4 flex flex-wrap gap-3 text-xs">
         <span className="rounded-lg bg-slate-50 px-3 py-2">{moved.length} com movimentação</span>
         <span className="rounded-lg bg-slate-50 px-3 py-2">Total identificado: <b>{fmt(total)}</b></span>
-        {unidentified > 0.001 && <span className="rounded-lg bg-amber-50 px-3 py-2 text-amber-800">Sem {expense ? "fornecedor" : "cliente"}: {fmt(unidentified)}</span>}
+        {unidentified > 0.001 && (
+          <button
+            type="button"
+            onClick={() => drill(`Sem ${expense ? "fornecedor" : "cliente"} informado`, unidentifiedEntries)}
+            className="rounded-lg bg-amber-50 px-3 py-2 text-amber-800 hover:bg-amber-100"
+          >
+            Sem {expense ? "fornecedor" : "cliente"}: {fmt(unidentified)}
+          </button>
+        )}
       </div>
       {moved.length > 0 && (
         <div className="mt-5 h-64 overflow-x-auto">
@@ -2677,8 +2700,8 @@ function CounterpartyReportPanel({
                 <YAxis type="category" dataKey="label" width={145} tick={{ fontSize: 10 }} />
                 <Tooltip formatter={(value, name) => [fmt(Number(value)), name === "realized" ? (expense ? "Pago" : "Recebido") : (expense ? "A pagar" : "A receber")]} contentStyle={{ borderRadius: 12, borderColor: "#e2e8f0" }} />
                 <Legend formatter={(value) => value === "realized" ? (expense ? "Pago" : "Recebido") : (expense ? "A pagar" : "A receber")} wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="realized" stackId="total" fill={expense ? "#dc2626" : "#059669"} />
-                <Bar dataKey="pending" stackId="total" fill={expense ? "#fdba74" : "#93c5fd"} />
+                <Bar dataKey="realized" stackId="total" fill={expense ? "#dc2626" : "#059669"} cursor="pointer" onClick={(data: any) => { const r = data?.payload ?? data; drill(`${r.name} · ${r.unit}`, entriesFor(r.key)); }} />
+                <Bar dataKey="pending" stackId="total" fill={expense ? "#fdba74" : "#93c5fd"} cursor="pointer" onClick={(data: any) => { const r = data?.payload ?? data; drill(`${r.name} · ${r.unit}`, entriesFor(r.key)); }} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -2691,7 +2714,11 @@ function CounterpartyReportPanel({
           </thead>
           <tbody className="divide-y divide-slate-100">
             {rows.map((row) => (
-              <tr key={row.key} className="hover:bg-slate-50">
+              <tr
+                key={row.key}
+                onClick={() => drill(`${row.name} · ${row.unit}`, entriesFor(row.key))}
+                className={`${row.count > 0 ? "cursor-pointer" : ""} hover:bg-slate-50`}
+              >
                 <td className="p-3 font-bold text-slate-800">{row.name}</td><td className="p-3 text-slate-600">{row.unit}</td><td className="p-3 text-right">{fmt(row.realized)}</td><td className="p-3 text-right">{fmt(row.pending)}</td><td className="p-3 text-right text-red-600">{fmt(row.overdue)}</td><td className="p-3 text-right font-extrabold">{fmt(row.total)}</td><td className="p-3 text-right">{row.count}</td>
               </tr>
             ))}
@@ -3174,8 +3201,8 @@ function Reports({
         </section>
       </div>
       <div className={`grid gap-5 ${kind === "todos" ? "xl:grid-cols-2" : ""}`}>
-        {kind !== "receita" && <CounterpartyReportPanel kind="despesa" entries={filtered} contacts={reportContacts} todayKey={todayKey} />}
-        {kind !== "despesa" && <CounterpartyReportPanel kind="receita" entries={filtered} contacts={reportContacts} todayKey={todayKey} />}
+        {kind !== "receita" && <CounterpartyReportPanel kind="despesa" entries={filtered} contacts={reportContacts} todayKey={todayKey} onDrill={openDrill} />}
+        {kind !== "despesa" && <CounterpartyReportPanel kind="receita" entries={filtered} contacts={reportContacts} todayKey={todayKey} onDrill={openDrill} />}
       </div>
       <section className="rounded-2xl bg-white p-5 shadow-sm">
         <h2 className="font-extrabold text-[#14213d]">
