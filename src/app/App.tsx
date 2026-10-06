@@ -84,7 +84,17 @@ type Entry = {
   installment?: string;
   notes?: string;
   attachments?: string[];
+  juros?: number;
+  paidDate?: string;
 };
+// Valor que efetivamente saiu/entrou: numa despesa já paga, soma os juros.
+const entryValue = (entry: Entry) =>
+  entry.amount + (entry.kind === "despesa" && entry.status === "realizado" ? entry.juros || 0 : 0);
+// Dias de atraso de uma despesa paga: diferença entre pagamento e vencimento.
+const lateDays = (entry: Entry) =>
+  entry.paidDate && entry.paidDate > entry.date
+    ? Math.round((Date.parse(`${entry.paidDate}T12:00:00`) - Date.parse(`${entry.date}T12:00:00`)) / 86400000)
+    : 0;
 type Category = {
   id: string;
   name: string;
@@ -1326,6 +1336,8 @@ function EntryForm({
     ),
     [pix, setPix] = useState(editing?.pix ?? ""),
     [notes, setNotes] = useState(editing?.notes ?? ""),
+    [juros, setJuros] = useState(editing?.juros ? String(editing.juros) : ""),
+    [paidDate, setPaidDate] = useState(editing?.paidDate ?? ""),
     [amount, setAmount] = useState(editing ? String(editing.amount) : ""),
     [date, setDate] = useState(
       editing?.date ?? new Date().toISOString().slice(0, 10),
@@ -1448,8 +1460,13 @@ function EntryForm({
       const folder = editing?.id ?? (crypto.randomUUID?.() ?? `${Date.now()}`);
       const uploaded: string[] = [];
       for (const file of newFiles) {
-        const safe = file.name.replace(/[^\w.\-]+/g, "_");
-        const path = `${unit}/${folder}/${Date.now()}-${safe}`;
+        // A chave do Storage precisa ser ASCII: remove acentos e troca
+        // qualquer caractere fora de [A-Za-z0-9._-] por "_".
+        const safe = file.name
+          .normalize("NFD")
+          .replace(/[̀-ͯ]/g, "")
+          .replace(/[^\w.\-]+/g, "_");
+        const path = `${folder}/${Date.now()}-${safe}`;
         await uploadEntryAttachment(path, file);
         uploaded.push(path);
       }
@@ -1477,6 +1494,8 @@ function EntryForm({
           recurrence: recurrence ? "mensal" : "nenhuma",
           installments: sameMonthInstallments ? 1 : installments,
           attachments,
+          juros: kind === "despesa" ? parseMoney(juros) || 0 : 0,
+          paidDate: kind === "despesa" ? paidDate || undefined : undefined,
         },
         scope,
         sameMonthInstallments ? sameMonthPartsState : undefined,
@@ -1779,6 +1798,25 @@ function EntryForm({
               </select>
             </label>
           </div>
+          {kind === "despesa" && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="text-xs font-bold">
+                Juros pagos (R$)
+                <CurrencyInput value={juros} onChange={setJuros} />
+                <span className="mt-1 block font-normal text-slate-400">Opcional. Soma ao total pago.</span>
+              </label>
+              <label className="text-xs font-bold">
+                Data do pagamento
+                <input
+                  type="date"
+                  value={paidDate}
+                  onChange={(e) => setPaidDate(e.target.value)}
+                  className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal"
+                />
+                <span className="mt-1 block font-normal text-slate-400">Mede o atraso em relação ao vencimento (campo Data).</span>
+              </label>
+            </div>
+          )}
           <div className="grid gap-3 rounded-xl border border-blue-100 bg-blue-50/60 p-4 sm:grid-cols-2">
             <label className="flex items-center gap-2 text-sm font-bold">
               <input
@@ -2451,13 +2489,32 @@ function Entries({
                     ))}
                   </div>
                 )}
+                {x.kind === "despesa" && ((x.juros ?? 0) > 0 || x.paidDate) && (
+                  <div className="mt-1 space-y-0.5 text-[11px]">
+                    {(x.juros ?? 0) > 0 && (
+                      <p className="text-slate-500">
+                        Valor {fmt(x.amount)} · Juros <b className="text-red-600">{fmt(x.juros ?? 0)}</b> · Total <b className="text-slate-700">{fmt(entryValue(x))}</b>
+                      </p>
+                    )}
+                    {x.paidDate && (
+                      <p className="text-slate-500">
+                        Pago em {new Date(`${x.paidDate}T12:00:00`).toLocaleDateString("pt-BR")}
+                        {lateDays(x) > 0 ? (
+                          <> · <b className="text-orange-600">{lateDays(x)} dia(s) de atraso</b></>
+                        ) : (
+                          " · em dia"
+                        )}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="text-right">
                 <p
                   className={`text-sm font-extrabold ${x.kind === "receita" ? "text-emerald-600" : "text-red-600"}`}
                 >
                   {x.kind === "receita" ? "+" : "-"}
-                  {fmt(x.amount)}
+                  {fmt(entryValue(x))}
                 </p>
                 <p className="text-[10px] font-bold uppercase text-gray-400">
                   {entryScheduleLabel(x)}
@@ -2506,7 +2563,7 @@ function Breakdown({
     entries
       .filter((x) => x.kind === kind)
       .reduce<Record<string, number>>(
-        (r, x) => ({ ...r, [x.category]: (r[x.category] || 0) + x.amount }),
+        (r, x) => ({ ...r, [x.category]: (r[x.category] || 0) + entryValue(x) }),
         {},
       ),
   ).sort((a, b) => b[1] - a[1]);
@@ -2598,9 +2655,9 @@ function summarizeCounterparties(
       key, name, unit: entry.unit, kind, total: 0, realized: 0,
       pending: 0, overdue: 0, count: 0,
     });
-    row.total += entry.amount;
+    row.total += entryValue(entry);
     row.count += 1;
-    if (entry.status === "realizado") row.realized += entry.amount;
+    if (entry.status === "realizado") row.realized += entryValue(entry);
     else {
       row.pending += entry.amount;
       if (entry.date < todayKey) row.overdue += entry.amount;
@@ -2619,7 +2676,7 @@ function CounterpartyOverview({
   const activeCount = contacts.filter((contact) => contact.kind === kind && !contact.archived).length;
   const total = rows.reduce((sum, row) => sum + row.total, 0);
   const pending = rows.reduce((sum, row) => sum + row.pending, 0);
-  const unidentified = entries.filter((entry) => entry.kind === kind).reduce((sum, entry) => sum + entry.amount, 0) - total;
+  const unidentified = entries.filter((entry) => entry.kind === kind).reduce((sum, entry) => sum + entryValue(entry), 0) - total;
   const expense = kind === "despesa";
   return (
     <section className="rounded-2xl bg-white p-5 shadow-sm">
@@ -2657,7 +2714,7 @@ function CounterpartyReportPanel({
   const rows = summarizeCounterparties(entries, contacts, kind, todayKey);
   const moved = rows.filter((row) => row.count > 0);
   const total = moved.reduce((sum, row) => sum + row.total, 0);
-  const unidentified = entries.filter((entry) => entry.kind === kind).reduce((sum, entry) => sum + entry.amount, 0) - total;
+  const unidentified = entries.filter((entry) => entry.kind === kind).reduce((sum, entry) => sum + entryValue(entry), 0) - total;
   const expense = kind === "despesa";
   // Resolve a qual fornecedor/cliente cada lançamento pertence, igual ao
   // agrupamento de summarizeCounterparties, para abrir os lançamentos reais.
@@ -2781,7 +2838,7 @@ function Reports({
         (entry) =>
           entry.kind === entryKind && (!status || entry.status === status),
       )
-      .reduce((sum, entry) => sum + entry.amount, 0);
+      .reduce((sum, entry) => sum + entryValue(entry), 0);
   const income = total("receita");
   const expense = total("despesa");
   const pendingPay = total("despesa", "previsto");
@@ -2821,9 +2878,9 @@ function Reports({
         color: categories.find((item) => item.kind === entry.kind && item.unit === entry.unit && item.name === entry.category)?.color
           ?? (entry.kind === "receita" ? "#10b981" : "#ef4444"),
       };
-      existing.total += entry.amount;
+      existing.total += entryValue(entry);
       existing.count += 1;
-      if (entry.status === "realizado") existing.realized += entry.amount;
+      if (entry.status === "realizado") existing.realized += entryValue(entry);
       else {
         existing.pending += entry.amount;
         if (entry.date < todayKey) existing.overdue += entry.amount;
@@ -2841,6 +2898,13 @@ function Reports({
     .filter((entry) => entry.kind === "despesa")
     .sort((a, b) => b.amount - a.amount)
     .slice(0, 8);
+  // Juros e atraso: só despesas já pagas.
+  const paidExpenses = filtered.filter((entry) => entry.kind === "despesa" && entry.status === "realizado");
+  const jurosEntries = paidExpenses.filter((entry) => (entry.juros || 0) > 0);
+  const totalJuros = jurosEntries.reduce((sum, entry) => sum + (entry.juros || 0), 0);
+  const lateExpenses = paidExpenses.filter((entry) => lateDays(entry) > 0);
+  const totalLateDays = lateExpenses.reduce((sum, entry) => sum + lateDays(entry), 0);
+  const avgLateDays = lateExpenses.length ? Math.round(totalLateDays / lateExpenses.length) : 0;
   const validPeriod = Boolean(from && to && from <= to);
   const periodStart = new Date(`${from}T12:00:00`);
   const periodEnd = new Date(`${to}T12:00:00`);
@@ -2877,7 +2941,7 @@ function Reports({
       const key = entry.kind === "receita"
         ? (entry.status === "realizado" ? "Receitas recebidas" : "Receitas previstas")
         : (entry.status === "realizado" ? "Despesas pagas" : "Despesas previstas");
-      bucket[key] += entry.amount;
+      bucket[key] += entryValue(entry);
     });
   }
   const reportContacts = contacts.filter((contact) =>
@@ -2895,7 +2959,7 @@ function Reports({
         )
         .reduce(
           (sum, entry) =>
-            sum + (entry.kind === "receita" ? entry.amount : -entry.amount),
+            sum + (entry.kind === "receita" ? entryValue(entry) : -entryValue(entry)),
           0,
         ),
     }));
@@ -3204,6 +3268,37 @@ function Reports({
         {kind !== "receita" && <CounterpartyReportPanel kind="despesa" entries={filtered} contacts={reportContacts} todayKey={todayKey} onDrill={openDrill} />}
         {kind !== "despesa" && <CounterpartyReportPanel kind="receita" entries={filtered} contacts={reportContacts} todayKey={todayKey} onDrill={openDrill} />}
       </div>
+      {kind !== "receita" && (
+        <section className="rounded-2xl bg-white p-5 shadow-sm">
+          <h2 className="font-extrabold text-[#14213d]">Juros e atraso</h2>
+          <p className="mt-1 text-xs text-slate-400">Despesas já pagas no período. Clique nos cards para ver o detalhamento.</p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <button
+              type="button"
+              onClick={() => openDrill("Despesas com juros", jurosEntries)}
+              className="rounded-xl border p-4 text-left transition hover:border-red-300 hover:shadow-sm"
+            >
+              <p className="text-xs font-bold text-gray-500">Juros pagos</p>
+              <p className="mt-2 text-2xl font-extrabold text-red-600">{fmt(totalJuros)}</p>
+              <p className="mt-1 text-[11px] font-semibold text-blue-700">{jurosEntries.length} despesa(s) · Ver →</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => openDrill("Despesas pagas em atraso", lateExpenses)}
+              className="rounded-xl border p-4 text-left transition hover:border-orange-300 hover:shadow-sm"
+            >
+              <p className="text-xs font-bold text-gray-500">Pagas em atraso</p>
+              <p className="mt-2 text-2xl font-extrabold text-orange-600">{lateExpenses.length}</p>
+              <p className="mt-1 text-[11px] font-semibold text-blue-700">Ver lançamentos →</p>
+            </button>
+            <div className="rounded-xl border p-4">
+              <p className="text-xs font-bold text-gray-500">Atraso médio</p>
+              <p className="mt-2 text-2xl font-extrabold text-[#14213d]">{avgLateDays} dia(s)</p>
+              <p className="mt-1 text-[11px] text-slate-400">{totalLateDays} dia(s) no total</p>
+            </div>
+          </div>
+        </section>
+      )}
       <section className="rounded-2xl bg-white p-5 shadow-sm">
         <h2 className="font-extrabold text-[#14213d]">
           Movimento realizado por conta no período
@@ -3260,6 +3355,14 @@ function Reports({
                         {entry.kind === "despesa" ? "Fornecedor" : "Cliente"}: {entry.beneficiary.trim()}
                       </p>
                     )}
+                    {entry.kind === "despesa" && ((entry.juros || 0) > 0 || entry.paidDate) && (
+                      <p className="text-[11px] text-slate-500">
+                        {(entry.juros || 0) > 0 && <>Juros <b className="text-red-600">{fmt(entry.juros || 0)}</b> · </>}
+                        {entry.paidDate && (lateDays(entry) > 0
+                          ? <>Pago em {new Date(`${entry.paidDate}T12:00:00`).toLocaleDateString("pt-BR")} · <b className="text-orange-600">{lateDays(entry)} dia(s) de atraso</b></>
+                          : <>Pago em dia</>)}
+                      </p>
+                    )}
                     {entry.attachments && entry.attachments.length > 0 && (
                       <div className="mt-1 flex flex-wrap gap-1.5">
                         {entry.attachments.map((path) => (
@@ -3285,7 +3388,7 @@ function Reports({
                   </div>
                   <div className="shrink-0 text-right">
                     <p className={`text-sm font-extrabold ${entry.kind === "receita" ? "text-emerald-600" : "text-red-600"}`}>
-                      {entry.kind === "receita" ? "+" : "-"}{fmt(entry.amount)}
+                      {entry.kind === "receita" ? "+" : "-"}{fmt(entryValue(entry))}
                     </p>
                     <p className="text-[10px] font-bold uppercase text-slate-400">
                       {entry.status === "realizado" ? (entry.kind === "despesa" ? "Pago" : "Recebido") : entry.date < todayKey ? "Vencido" : entry.kind === "despesa" ? "A pagar" : "A receber"}
@@ -3296,7 +3399,7 @@ function Reports({
             </div>
             <footer className="flex items-center justify-between border-t bg-gray-50 px-6 py-3 text-sm font-bold text-slate-700">
               <span>Total</span>
-              <span>{fmt(drill.items.reduce((sum, entry) => sum + entry.amount, 0))}</span>
+              <span>{fmt(drill.items.reduce((sum, entry) => sum + entryValue(entry), 0))}</span>
             </footer>
           </section>
         </div>
@@ -3449,6 +3552,8 @@ function App() {
           seriesId: row.series_id || undefined,
           counterpartyId: row.counterparty_id ?? undefined,
           amount: Number(row.amount),
+          juros: row.juros != null ? Number(row.juros) : 0,
+          paidDate: row.paid_date || undefined,
         })) as Entry[];
         // The new registry has its own migration. Until it is applied, the
         // old production database and existing launches must remain readable.
@@ -3528,6 +3633,8 @@ function App() {
             seriesId: row.series_id || undefined,
             counterpartyId: row.counterparty_id ?? undefined,
             amount: Number(row.amount),
+            juros: row.juros != null ? Number(row.juros) : 0,
+            paidDate: row.paid_date || undefined,
           })) as Entry[]);
         }
       } catch (error) {
@@ -3798,7 +3905,7 @@ function App() {
   const balance = (name: string) =>
       entries
         .filter((x) => x.account === name && x.status === "realizado")
-        .reduce((s, x) => s + (x.kind === "receita" ? x.amount : -x.amount), 0),
+        .reduce((s, x) => s + (x.kind === "receita" ? entryValue(x) : -entryValue(x)), 0),
     addAccount = async () => {
       if (currentUser.role !== "master") return;
       const name = window.prompt("Nome da nova conta:");
@@ -3889,7 +3996,7 @@ function App() {
     sum = (k: Kind, status?: Entry["status"]) =>
       current
         .filter((x) => x.kind === k && (!status || x.status === status))
-        .reduce((s, x) => s + x.amount, 0),
+        .reduce((s, x) => s + entryValue(x), 0),
     totals = {
       income: sum("receita", "realizado"),
       expense: sum("despesa", "realizado"),
@@ -4048,9 +4155,15 @@ function App() {
       void refreshContacts();
     },
     settle = async (x: Entry) => {
+      const becomingPaid = x.status !== "realizado";
       const updated = {
         ...x,
-        status: x.status === "realizado" ? "previsto" : "realizado",
+        status: becomingPaid ? "realizado" : "previsto",
+        // Em despesas, registra a data do pagamento ao dar baixa (se vazia)
+        // para medir o atraso; ao reverter, limpa a data.
+        ...(x.kind === "despesa"
+          ? { paidDate: becomingPaid ? x.paidDate || todayStr : undefined }
+          : {}),
       } as Entry;
       await saveRemoteEntries([updated]);
       setEntries((old) => old.map((v) => (v.id === x.id ? updated : v)));
@@ -4116,7 +4229,7 @@ function App() {
     ).sort((a, b) => a.name.localeCompare(b.name, "pt-BR")),
     listTotals = list.reduce(
       (totals, entry) => {
-        totals[entry.kind] += entry.amount;
+        totals[entry.kind] += entryValue(entry);
         return totals;
       },
       { receita: 0, despesa: 0 },
@@ -4340,33 +4453,6 @@ function App() {
                 </div>
                 <Month value={month} move={move} />
               </div>
-              <section className="mb-5 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-orange-200 bg-orange-50 p-5">
-                <div className="flex items-center gap-4">
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-orange-600 text-white">
-                    <CalendarClock className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <p className="text-xs font-extrabold uppercase tracking-wide text-orange-700">A pagar hoje</p>
-                    {payToday.length > 0 ? (
-                      <p className="mt-0.5 text-2xl font-extrabold text-[#14213d]">
-                        {fmt(payTodayTotal)}
-                        <span className="ml-2 text-sm font-bold text-orange-700">· {payToday.length} conta(s)</span>
-                      </p>
-                    ) : (
-                      <p className="mt-0.5 text-lg font-bold text-emerald-700">Nada a pagar hoje ✓</p>
-                    )}
-                  </div>
-                </div>
-                {payToday.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={openPayToday}
-                    className="rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-orange-700"
-                  >
-                    Ver contas de hoje →
-                  </button>
-                )}
-              </section>
               {pending.length > 0 && (
                 <section className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
                   <b>⚠ Pendências de vencimento: {pending.length}</b>
@@ -4379,18 +4465,23 @@ function App() {
                   </span>
                 </section>
               )}
-              <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                 {([
-                  { title: "Receitas recebidas", value: totals.income, Icon: TrendingUp, style: "text-emerald-600 bg-emerald-50", filter: "recebidas" },
-                  { title: "Despesas pagas", value: totals.expense, Icon: TrendingDown, style: "text-red-600 bg-red-50", filter: "pagas" },
-                  { title: "A pagar", value: totals.pay, Icon: CreditCard, style: "text-orange-600 bg-orange-50", filter: "pagar" },
-                  { title: "A receber", value: totals.receive, Icon: Wallet, style: "text-blue-600 bg-blue-50", filter: "receber" },
-                ] as const).map(({ title, value, Icon: CardIcon, style, filter: targetFilter }) => {
+                  { title: "A pagar hoje", value: payTodayTotal, Icon: CalendarClock, style: "text-orange-600 bg-orange-50", filter: "pagar", today: true },
+                  { title: "Receitas recebidas", value: totals.income, Icon: TrendingUp, style: "text-emerald-600 bg-emerald-50", filter: "recebidas", today: false },
+                  { title: "Despesas pagas", value: totals.expense, Icon: TrendingDown, style: "text-red-600 bg-red-50", filter: "pagas", today: false },
+                  { title: "A pagar", value: totals.pay, Icon: CreditCard, style: "text-orange-600 bg-orange-50", filter: "pagar", today: false },
+                  { title: "A receber", value: totals.receive, Icon: Wallet, style: "text-blue-600 bg-blue-50", filter: "receber", today: false },
+                ] as const).map(({ title, value, Icon: CardIcon, style, filter: targetFilter, today: isToday }) => {
                   return (
                     <button
                       key={title}
                       type="button"
                       onClick={() => {
+                        if (isToday) {
+                          openPayToday();
+                          return;
+                        }
                         setFilter("Todos");
                         setCounterpartyFilter("todos");
                         setOverdueKind("todos");
@@ -4398,7 +4489,7 @@ function App() {
                         setEntryFilter(targetFilter);
                         setScreen("lancamentos");
                       }}
-                      aria-label={`${title}: ${fmt(value)}. Ver lançamentos de ${labelMonth(month)}`}
+                      aria-label={`${title}: ${fmt(value)}. Ver lançamentos`}
                       className="rounded-2xl bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600"
                     >
                       <div
@@ -4412,7 +4503,13 @@ function App() {
                       <p className="mt-1 text-2xl font-extrabold text-[#14213d]">
                         {fmt(value)}
                       </p>
-                      <p className="mt-2 text-[11px] font-semibold text-blue-700">Ver lançamentos →</p>
+                      <p className="mt-2 text-[11px] font-semibold text-blue-700">
+                        {isToday
+                          ? payToday.length > 0
+                            ? `${payToday.length} conta(s) · Ver →`
+                            : "Nada hoje ✓"
+                          : "Ver lançamentos →"}
+                      </p>
                     </button>
                   );
                 })}
@@ -4519,12 +4616,12 @@ function App() {
                       .filter(
                         (x) => x.kind === "receita" && x.status === "realizado",
                       )
-                      .reduce((s, x) => s + x.amount, 0),
+                      .reduce((s, x) => s + entryValue(x), 0),
                     expense = d
                       .filter(
                         (x) => x.kind === "despesa" && x.status === "realizado",
                       )
-                      .reduce((s, x) => s + x.amount, 0);
+                      .reduce((s, x) => s + entryValue(x), 0);
                   return (
                     <article
                       key={u.name}

@@ -71,6 +71,8 @@ function entryRow(entry: any) {
     // Only sent when present, so entry saving keeps working on a database
     // whose attachments migration has not been applied yet.
     ...(entry.attachments !== undefined ? { attachments: entry.attachments } : {}),
+    ...(entry.juros !== undefined ? { juros: entry.juros } : {}),
+    ...(entry.paidDate !== undefined ? { paid_date: entry.paidDate || null } : {}),
   };
 }
 
