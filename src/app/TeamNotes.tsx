@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   Download,
   Eye,
@@ -113,22 +113,20 @@ export default function TeamNotesScreen() {
   const invoiceFor = (memberId: string, competence: string) =>
     invoices.find((item) => item.member_id === memberId && item.competence === competence) ?? null;
   const statusOf = (member: TeamMember): Status => {
-    if (invoiceFor(member.id, key)) return "enviada";
+    // A nota é o arquivo: um registro sem arquivo não conta como enviada.
+    if (invoiceFor(member.id, key)?.files.length) return "enviada";
     const [y, m] = key.split("-").map(Number);
     const lastDay = new Date(y, m, 0).getDate();
     const due = `${key}-${pad(Math.min(member.due_day, lastDay))}`;
     return todayStr > due ? "atrasada" : "pendente";
   };
 
-  // Colaboradores do mês: ativos já cadastrados até o mês + quem tem nota nele.
+  // Todos os colaboradores (ativos e inativos) aparecem em qualquer mês, para
+  // permitir lançar notas de meses anteriores e de quem já saiu da equipe. A
+  // data de cadastro no sistema não limita mais em quais meses a pessoa aparece.
   const rows = useMemo(
     () =>
-      members
-        .filter((member) => {
-          const createdMonth = member.created_at?.slice(0, 7) ?? "0000-00";
-          return (member.active && createdMonth <= key) || Boolean(invoiceFor(member.id, key));
-        })
-        .map((member) => ({ member, status: statusOf(member), invoice: invoiceFor(member.id, key) })),
+      members.map((member) => ({ member, status: statusOf(member), invoice: invoiceFor(member.id, key) })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [members, invoices, key, todayStr],
   );
@@ -248,6 +246,9 @@ export default function TeamNotesScreen() {
                     {categoryName(member.category_id) && (
                       <p className="text-[11px] font-semibold text-teal-700">{categoryName(member.category_id)}</p>
                     )}
+                    {!member.active && (
+                      <span className="mt-0.5 inline-block rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">Inativo</span>
+                    )}
                     {member.document && <p className="text-[11px] text-slate-400">{member.document}</p>}
                   </td>
                   <td className="p-3 text-slate-600">{member.service || "—"}</td>
@@ -256,6 +257,9 @@ export default function TeamNotesScreen() {
                     <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${statusStyle[status]}`}>
                       {statusLabel[status]}
                     </span>
+                    {invoice && !invoice.files.length && (
+                      <p className="mt-1 text-[10px] font-semibold text-amber-700">Registrada sem arquivo</p>
+                    )}
                   </td>
                   <td className="p-3 text-right">
                     {invoice?.amount != null ? (
@@ -268,7 +272,7 @@ export default function TeamNotesScreen() {
                   </td>
                   <td className="p-3">
                     <div className="flex justify-end gap-1.5">
-                      {invoice ? (
+                      {invoice && invoice.files.length ? (
                         <>
                           <button
                             type="button"
@@ -288,10 +292,10 @@ export default function TeamNotesScreen() {
                       ) : (
                         <button
                           type="button"
-                          onClick={() => setInvoiceForm({ member, invoice: null })}
+                          onClick={() => setInvoiceForm({ member, invoice })}
                           className="flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 font-bold text-white hover:bg-emerald-700"
                         >
-                          <Plus className="h-3.5 w-3.5" /> Registrar nota
+                          <Plus className="h-3.5 w-3.5" /> {invoice ? "Anexar nota" : "Registrar nota"}
                         </button>
                       )}
                       <span className="mx-1 w-px self-stretch bg-slate-200" aria-hidden="true" />
@@ -577,6 +581,45 @@ function InvoiceForm({
   const [existing, setExisting] = useState<string[]>(invoice?.files ?? []);
   const [removedFiles, setRemovedFiles] = useState<string[]>([]);
   const [newFiles, setNewFiles] = useState<File[]>([]);
+  const [dragging, setDragging] = useState(false);
+  const addFiles = (picked: File[]) => {
+    if (!picked.length) return;
+    const invalid = picked.find(
+      (file) =>
+        !["application/pdf", "image/png", "image/jpeg"].includes(file.type) &&
+        !/\.(pdf|png|jpe?g)$/i.test(file.name),
+    );
+    if (invalid) {
+      setError(`"${invalid.name}" não é aceito. Envie PDF, PNG ou JPG.`);
+      return;
+    }
+    const tooBig = picked.find((file) => file.size > 10 * 1024 * 1024);
+    if (tooBig) {
+      setError(`O arquivo "${tooBig.name}" passa de 10 MB.`);
+      return;
+    }
+    setNewFiles((old) => [...old, ...picked]);
+    setError("");
+  };
+  // Soltar o arquivo em qualquer lugar da tela (com o formulário aberto) anexa,
+  // em vez de o navegador sair da página para abrir o PDF.
+  const addFilesRef = useRef(addFiles);
+  addFilesRef.current = addFiles;
+  useEffect(() => {
+    const over = (event: DragEvent) => event.preventDefault();
+    const drop = (event: DragEvent) => {
+      if (event.defaultPrevented) return; // já tratado pela área de anexo
+      event.preventDefault();
+      setDragging(false);
+      addFilesRef.current(Array.from(event.dataTransfer?.files ?? []));
+    };
+    window.addEventListener("dragover", over);
+    window.addEventListener("drop", drop);
+    return () => {
+      window.removeEventListener("dragover", over);
+      window.removeEventListener("drop", drop);
+    };
+  }, []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -593,8 +636,31 @@ function InvoiceForm({
       setError(`Já existe uma nota de ${member.name} para ${competenceLabel(competence)}. Edite a nota existente.`);
       return;
     }
+    // Sem arquivo e sem nenhum dado, a nota deixa de existir: excluímos o
+    // registro em vez de manter um "registro fantasma" marcado como enviado.
+    const isEmpty = !existing.length && !newFiles.length && !number.trim() && !issueDate && !notes.trim();
+    if (isEmpty && !invoice) {
+      setError("Anexe o arquivo da nota para registrar.");
+      return;
+    }
     setBusy(true);
     setError("");
+    if (isEmpty && invoice) {
+      try {
+        await deleteTeamInvoice(invoice.id);
+        try {
+          await removeTeamNoteFiles([...invoice.files, ...removedFiles]);
+        } catch (cleanupError) {
+          console.error("Fincore: falha ao remover arquivos da nota", cleanupError);
+        }
+        removed(invoice.id);
+        close();
+      } catch (deleteError) {
+        setError(deleteError instanceof Error ? deleteError.message : "Não foi possível remover a nota.");
+        setBusy(false);
+      }
+      return;
+    }
     try {
       const invoiceId = invoice?.id ?? newId();
       const uploaded: string[] = [];
@@ -705,22 +771,35 @@ function InvoiceForm({
                   </button>
                 </div>
               ))}
-              <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white p-3 text-slate-600 hover:border-blue-300 hover:text-blue-700">
-                <Plus className="h-4 w-4" />
-                Anexar arquivo
+              <label
+                onDragEnter={(event) => {
+                  event.preventDefault();
+                  setDragging(true);
+                }}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setDragging(true);
+                }}
+                onDragLeave={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false);
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  setDragging(false);
+                  addFiles(Array.from(event.dataTransfer.files));
+                }}
+                className={`flex cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed p-5 transition ${dragging ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-300 bg-white text-slate-600 hover:border-blue-300 hover:text-blue-700"}`}
+              >
+                <Plus className="h-5 w-5" />
+                {dragging ? "Solte o arquivo para anexar" : "Arraste a nota aqui ou clique para escolher"}
+                <span className="font-normal text-slate-400">PDF, PNG ou JPG · até 10 MB</span>
                 <input
                   type="file"
                   accept="image/png,image/jpeg,application/pdf"
                   multiple
                   className="hidden"
                   onChange={(event) => {
-                    const picked = Array.from(event.target.files ?? []);
-                    const tooBig = picked.find((file) => file.size > 10 * 1024 * 1024);
-                    if (tooBig) setError(`O arquivo "${tooBig.name}" passa de 10 MB.`);
-                    else {
-                      setNewFiles((old) => [...old, ...picked]);
-                      setError("");
-                    }
+                    addFiles(Array.from(event.target.files ?? []));
                     event.target.value = "";
                   }}
                 />

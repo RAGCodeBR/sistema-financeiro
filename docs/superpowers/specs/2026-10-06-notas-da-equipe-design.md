@@ -28,7 +28,9 @@ nota fiscal, guardar o arquivo da nota e permitir vê-lo na tela, baixar e edita
 ## Tela (aba "Notas da equipe", abaixo de Fornecedores/clientes)
 - Navegador de mês; contadores clicáveis Enviadas / Pendentes / Atrasadas.
 - Lista do mês: colaborador, serviço, dia limite, status, valor, ações.
-  Mostra colaboradores ativos criados até o mês + quem tem nota no mês.
+  Mostra todos os colaboradores (ativos e inativos) em qualquer mês, para
+  permitir lançar notas retroativas e de quem já saiu (ajuste de 2026-10-06:
+  a regra antiga usava a data de cadastro no sistema e escondia meses anteriores).
 - Colaborador: criar, editar (inclui ativar/inativar), excluir (confirmação).
 - Nota: registrar/editar (nº, valor, emissão, observações, arquivos).
 - Visualizador: PDF em `<iframe>`, imagem em `<img>`, via URL assinada;
