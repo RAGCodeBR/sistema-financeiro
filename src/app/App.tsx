@@ -20,6 +20,7 @@ import {
   saveRemoteEntries,
   setRemoteCounterpartyArchived,
 } from "../lib/bridge";
+import { changedSeriesFields, seriesDueDate } from "../lib/seriesDates";
 import {
   AlertTriangle,
   Bell,
@@ -4053,6 +4054,16 @@ function App() {
     ) => {
       if (editing) {
         const isWholeSeries = scope === "series" && Boolean(editing.seriesId);
+        const occurrences = isWholeSeries
+          ? entries.filter((entry) => entry.seriesId === editing.seriesId)
+          : [];
+        // A series may contain paid and pending months, or two installments
+        // with different amounts. Only propagate fields actually changed in
+        // the form; otherwise a due-date correction would overwrite them.
+        const seriesChanges = changedSeriesFields<Entry>(editing, data, [
+          "date",
+          "installment",
+        ]);
         const updated = entries.map((x) =>
           (
             isWholeSeries
@@ -4061,13 +4072,12 @@ function App() {
           )
             ? {
                 ...x,
-                ...data,
+                ...(isWholeSeries ? seriesChanges : data),
                 id: x.id,
                 seriesId: x.seriesId,
-                // The form date belongs to the occurrence being edited. On a
-                // whole-series update, every occurrence must retain its own
-                // due date; only its shared financial details change.
-                date: isWholeSeries ? x.date : data.date,
+                date: isWholeSeries
+                  ? seriesDueDate(occurrences, editing, x, data.date)
+                  : data.date,
                 installment: x.installment,
               }
             : x,
