@@ -83,7 +83,7 @@ export default function TeamNotesScreen() {
         readAuthenticatedRows<TeamInvoice>("team_invoices"),
       ]);
       setMembers(memberRows.map((row) => ({ ...row, expected_amount: toNumber(row.expected_amount), due_day: Number(row.due_day) })));
-      setInvoices(invoiceRows.map((row) => ({ ...row, amount: toNumber(row.amount), files: row.files ?? [] })));
+      setInvoices(invoiceRows.map((row) => ({ ...row, reference_month: row.reference_month ?? row.competence, amount: toNumber(row.amount), files: row.files ?? [] })));
       try {
         setCategories(await readAuthenticatedRows<TeamCategory>("team_categories", "name.asc"));
         setCategoriesReady(true);
@@ -110,8 +110,9 @@ export default function TeamNotesScreen() {
     id ? categories.find((category) => category.id === id)?.name : undefined;
   const key = monthKey(month);
   const todayStr = localDate(new Date());
-  const invoiceFor = (memberId: string, competence: string) =>
-    invoices.find((item) => item.member_id === memberId && item.competence === competence) ?? null;
+  // A nota aparece no mês de controle; a competência é só informativa.
+  const invoiceFor = (memberId: string, month: string) =>
+    invoices.find((item) => item.member_id === memberId && item.reference_month === month) ?? null;
   const statusOf = (member: TeamMember): Status => {
     // A nota é o arquivo: um registro sem arquivo não conta como enviada.
     if (invoiceFor(member.id, key)?.files.length) return "enviada";
@@ -146,7 +147,7 @@ export default function TeamNotesScreen() {
     });
   const upsertInvoice = (saved: TeamInvoice) =>
     setInvoices((old) => {
-      const normalized = { ...saved, amount: toNumber(saved.amount), files: saved.files ?? [] };
+      const normalized = { ...saved, reference_month: saved.reference_month ?? saved.competence, amount: toNumber(saved.amount), files: saved.files ?? [] };
       return old.some((item) => item.id === saved.id)
         ? old.map((item) => (item.id === saved.id ? normalized : item))
         : [...old, normalized];
@@ -259,6 +260,9 @@ export default function TeamNotesScreen() {
                     </span>
                     {invoice && !invoice.files.length && (
                       <p className="mt-1 text-[10px] font-semibold text-amber-700">Registrada sem arquivo</p>
+                    )}
+                    {invoice && invoice.competence !== invoice.reference_month && (
+                      <p className="mt-1 text-[10px] font-semibold text-slate-500">Competência: {competenceLabel(invoice.competence)}</p>
                     )}
                   </td>
                   <td className="p-3 text-right">
@@ -571,6 +575,7 @@ function InvoiceForm({
   saved: (invoice: TeamInvoice) => void;
   removed: (id: string) => void;
 }) {
+  const [referenceMonth, setReferenceMonth] = useState(invoice?.reference_month ?? defaultCompetence);
   const [competence, setCompetence] = useState(invoice?.competence ?? defaultCompetence);
   const [number, setNumber] = useState(invoice?.invoice_number ?? "");
   const [amount, setAmount] = useState(
@@ -625,15 +630,19 @@ function InvoiceForm({
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (!/^\d{4}-\d{2}$/.test(referenceMonth)) {
+      setError("Informe o mês de controle (em que mês a nota conta).");
+      return;
+    }
     if (!/^\d{4}-\d{2}$/.test(competence)) {
       setError("Informe o mês de competência.");
       return;
     }
     const duplicate = invoices.find(
-      (item) => item.member_id === member.id && item.competence === competence && item.id !== invoice?.id,
+      (item) => item.member_id === member.id && item.reference_month === referenceMonth && item.id !== invoice?.id,
     );
     if (duplicate) {
-      setError(`Já existe uma nota de ${member.name} para ${competenceLabel(competence)}. Edite a nota existente.`);
+      setError(`Já existe uma nota de ${member.name} no controle de ${competenceLabel(referenceMonth)}. Edite a nota existente.`);
       return;
     }
     // Sem arquivo e sem nenhum dado, a nota deixa de existir: excluímos o
@@ -673,6 +682,7 @@ function InvoiceForm({
       const result = await saveTeamInvoice({
         id: invoiceId,
         member_id: member.id,
+        reference_month: referenceMonth,
         competence,
         invoice_number: number.trim(),
         amount: Number.isFinite(amountValue) ? amountValue : null,
@@ -698,7 +708,7 @@ function InvoiceForm({
 
   const deleteInvoice = async () => {
     if (!invoice) return;
-    if (!window.confirm(`Excluir a nota de ${member.name} (${competenceLabel(invoice.competence)})? O arquivo também será apagado.`)) return;
+    if (!window.confirm(`Excluir a nota de ${member.name} (${competenceLabel(invoice.reference_month)})? O arquivo também será apagado.`)) return;
     setBusy(true);
     setError("");
     try {
@@ -721,9 +731,16 @@ function InvoiceForm({
       <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
         <div className="space-y-4 overflow-y-auto p-6">
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block text-xs font-bold text-slate-700">Competência (mês)
-              <input required type="month" value={competence} onChange={(e) => setCompetence(e.target.value)} className={inputClass} />
+            <label className="block text-xs font-bold text-slate-700">Mês de controle
+              <input required type="month" value={referenceMonth} onChange={(e) => setReferenceMonth(e.target.value)} className={inputClass} />
+              <span className="mt-1 block font-normal text-slate-400">Mês em que a nota aparece e conta como enviada.</span>
             </label>
+            <label className="block text-xs font-bold text-slate-700">Competência (mês do serviço)
+              <input required type="month" value={competence} onChange={(e) => setCompetence(e.target.value)} className={inputClass} />
+              <span className="mt-1 block font-normal text-slate-400">Só informativo: pode ser de outro mês.</span>
+            </label>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
             <label className="block text-xs font-bold text-slate-700">Nº da nota
               <input value={number} onChange={(e) => setNumber(e.target.value)} className={inputClass} placeholder="Ex.: 1234" />
             </label>
@@ -852,7 +869,8 @@ function InvoiceViewer({ member, invoice, close, edit }: { member: TeamMember; i
     }
   };
   const details = [
-    competenceLabel(invoice.competence),
+    `Controle: ${competenceLabel(invoice.reference_month)}`,
+    invoice.competence !== invoice.reference_month && `Competência: ${competenceLabel(invoice.competence)}`,
     invoice.invoice_number && `Nº ${invoice.invoice_number}`,
     invoice.amount != null && fmt(invoice.amount),
     invoice.issue_date && `Emitida em ${dateBR(invoice.issue_date)}`,

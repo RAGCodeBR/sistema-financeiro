@@ -208,6 +208,9 @@ export type TeamMember = {
 export type TeamInvoice = {
   id: string;
   member_id: string;
+  /** Mês em que a nota aparece e conta como enviada (YYYY-MM). */
+  reference_month: string;
+  /** Mês do serviço prestado (YYYY-MM), só informativo. */
   competence: string;
   invoice_number: string;
   amount: number | null;
