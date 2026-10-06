@@ -3341,6 +3341,9 @@ function App() {
     [entryFilter, setEntryFilter] = useState<
       "todos" | "pagar" | "receber" | "pagas" | "recebidas" | "atrasadas"
     >("todos"),
+    [periodMode, setPeriodMode] = useState<"mes" | "hoje" | "semana" | "custom">("mes"),
+    [periodFrom, setPeriodFrom] = useState(""),
+    [periodTo, setPeriodTo] = useState(""),
     [counterpartyFilter, setCounterpartyFilter] = useState("todos"),
     [overdueKind, setOverdueKind] = useState<Kind | "todos">("todos"),
     [notificationsOpen, setNotificationsOpen] = useState(false),
@@ -3854,6 +3857,35 @@ function App() {
     overduePay = overdue.filter((x) => x.kind === "despesa"),
     overdueReceive = overdue.filter((x) => x.kind === "receita"),
     current = visible.filter((x) => x.date.startsWith(key)),
+    localDate = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
+    todayStr = localDate(new Date()),
+    // Intervalo de datas da lista de Lançamentos conforme o período escolhido.
+    period = (() => {
+      if (periodMode === "hoje") return { start: todayStr, end: todayStr, label: "Hoje" };
+      if (periodMode === "semana") {
+        const now = new Date();
+        const offset = (now.getDay() + 6) % 7; // 0 = segunda … 6 = domingo
+        const monday = new Date(now);
+        monday.setDate(now.getDate() - offset);
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+        return { start: localDate(monday), end: localDate(sunday), label: "Esta semana" };
+      }
+      if (periodMode === "custom") {
+        const start = periodFrom || todayStr;
+        const end = periodTo || todayStr;
+        return { start, end, label: "Período personalizado" };
+      }
+      const first = new Date(month.getFullYear(), month.getMonth(), 1);
+      const last = new Date(month.getFullYear(), month.getMonth() + 1, 0);
+      return { start: localDate(first), end: localDate(last), label: labelMonth(month) };
+    })(),
+    listCurrent = visible.filter((x) => x.date >= period.start && x.date <= period.end),
+    payToday = visible.filter(
+      (x) => x.kind === "despesa" && x.status === "previsto" && x.date === todayStr,
+    ),
+    payTodayTotal = payToday.reduce((s, x) => s + x.amount, 0),
     sum = (k: Kind, status?: Entry["status"]) =>
       current
         .filter((x) => x.kind === k && (!status || x.status === status))
@@ -3874,6 +3906,14 @@ function App() {
       setNotificationsOpen(false);
       setScreen("lancamentos");
     },
+    openPayToday = () => {
+      setFilter("Todos");
+      setCounterpartyFilter("todos");
+      setOverdueKind("todos");
+      setPeriodMode("hoje");
+      setEntryFilter("pagar");
+      setScreen("lancamentos");
+    },
     openNotification = (entry: Entry) => {
       if (entry.date < today) {
         openOverdue(entry.kind);
@@ -3882,6 +3922,7 @@ function App() {
       setFilter("Todos");
       setCounterpartyFilter("todos");
       setEntryFilter(entry.kind === "despesa" ? "pagar" : "receber");
+      setPeriodMode("mes");
       setMonth(new Date(`${entry.date}T12:00:00`));
       setNotificationsOpen(false);
       setScreen("lancamentos");
@@ -4034,7 +4075,7 @@ function App() {
       setModal(kind);
       setScreen("lancamentos");
     },
-    list = (entryFilter === "atrasadas" ? overdue : current)
+    list = (entryFilter === "atrasadas" ? overdue : listCurrent)
       .filter((x) => filter === "Todos" || x.unit === filter)
       .filter(
         (x) =>
@@ -4126,6 +4167,7 @@ function App() {
                     setCounterpartyFilter("todos");
                     setEntryFilter("todos");
                     setOverdueKind("todos");
+                    setPeriodMode("mes");
                   }
                   setMenu(false);
                 }}
@@ -4298,6 +4340,33 @@ function App() {
                 </div>
                 <Month value={month} move={move} />
               </div>
+              <section className="mb-5 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-orange-200 bg-orange-50 p-5">
+                <div className="flex items-center gap-4">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-orange-600 text-white">
+                    <CalendarClock className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-extrabold uppercase tracking-wide text-orange-700">A pagar hoje</p>
+                    {payToday.length > 0 ? (
+                      <p className="mt-0.5 text-2xl font-extrabold text-[#14213d]">
+                        {fmt(payTodayTotal)}
+                        <span className="ml-2 text-sm font-bold text-orange-700">· {payToday.length} conta(s)</span>
+                      </p>
+                    ) : (
+                      <p className="mt-0.5 text-lg font-bold text-emerald-700">Nada a pagar hoje ✓</p>
+                    )}
+                  </div>
+                </div>
+                {payToday.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={openPayToday}
+                    className="rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-orange-700"
+                  >
+                    Ver contas de hoje →
+                  </button>
+                )}
+              </section>
               {pending.length > 0 && (
                 <section className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
                   <b>⚠ Pendências de vencimento: {pending.length}</b>
@@ -4325,6 +4394,7 @@ function App() {
                         setFilter("Todos");
                         setCounterpartyFilter("todos");
                         setOverdueKind("todos");
+                        setPeriodMode("mes");
                         setEntryFilter(targetFilter);
                         setScreen("lancamentos");
                       }}
@@ -4853,6 +4923,41 @@ function App() {
                       </button>
                     ))}
                   </div>
+                  {entryFilter !== "atrasadas" && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
+                        Período:
+                      </span>
+                      {([
+                        ["hoje", "Hoje"],
+                        ["semana", "Semana"],
+                        ["mes", "Mês"],
+                        ["custom", "Personalizado"],
+                      ] as const).map(([value, label]) => (
+                        <button
+                          key={value}
+                          onClick={() => {
+                            if (value === "custom" && !periodFrom && !periodTo) {
+                              const now = new Date();
+                              setPeriodFrom(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`);
+                              setPeriodTo(todayStr);
+                            }
+                            setPeriodMode(value);
+                          }}
+                          className={`rounded-full px-2.5 py-1.5 text-[11px] font-bold ${periodMode === value ? "bg-indigo-600 text-white" : "border bg-white text-gray-600"}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                      {periodMode === "custom" && (
+                        <span className="flex items-center gap-1">
+                          <input type="date" value={periodFrom} onChange={(event) => setPeriodFrom(event.target.value)} className="rounded-lg border bg-white px-2 py-1 text-xs font-semibold text-gray-700" />
+                          <span className="text-gray-400">até</span>
+                          <input type="date" value={periodTo} onChange={(event) => setPeriodTo(event.target.value)} className="rounded-lg border bg-white px-2 py-1 text-xs font-semibold text-gray-700" />
+                        </span>
+                      )}
+                    </div>
+                  )}
                   {entryFilter === "atrasadas" && (
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
@@ -4918,7 +5023,15 @@ function App() {
                     </select>
                   </label>
                 </div>
-                <Month value={month} move={move} />
+                {entryFilter === "atrasadas" ? (
+                  <span className="rounded-full bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600">Todos os meses</span>
+                ) : periodMode === "mes" ? (
+                  <Month value={month} move={move} />
+                ) : (
+                  <span className="rounded-full bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-700">
+                    {new Date(`${period.start}T12:00:00`).toLocaleDateString("pt-BR")} – {new Date(`${period.end}T12:00:00`).toLocaleDateString("pt-BR")}
+                  </span>
+                )}
               </div>
               <div className="mb-5 grid gap-3 rounded-xl border border-blue-100 bg-blue-50/50 p-4 sm:grid-cols-3">
                 <div>
