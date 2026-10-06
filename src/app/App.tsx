@@ -1328,9 +1328,14 @@ function EntryForm({
   // O valor pago vale para um único pagamento: aparece em despesas avulsas e
   // ao editar um só mês, mas não ao criar um parcelamento/recorrência nem ao
   // editar "Toda a série" (senão o valor de um mês seria copiado para todos).
+  // Editar um lançamento avulso e escolher dividir, parcelar ou recorrente
+  // transforma-o numa série nova que substitui o original ao salvar.
+  const standaloneEdit = Boolean(editing && !editing.seriesId);
+  const converting =
+    standaloneEdit && (recurrence || installments > 1 || sameMonthInstallments);
   const showPaidValue =
     kind === "despesa" &&
-    (editing
+    (editing && !converting
       ? scope !== "series"
       : !recurrence && installments <= 1 && !sameMonthInstallments);
   const paidNumber = parseMoney(paidValue);
@@ -1866,6 +1871,11 @@ function EntryForm({
               </label>
             </div>
           )}
+          {converting && (
+            <p className="rounded-xl bg-amber-50 p-3 text-xs font-bold text-amber-800">
+              Ao salvar, este lançamento será substituído pelas parcelas abaixo (os anexos são mantidos).
+            </p>
+          )}
           <div className="grid gap-3 rounded-xl border border-blue-100 bg-blue-50/60 p-4 sm:grid-cols-2">
             <label className="flex items-center gap-2 text-sm font-bold">
               <input
@@ -1879,7 +1889,7 @@ function EntryForm({
               <Repeat2 className="h-4 w-4 text-blue-600" />
               Recorrente mensal
             </label>
-            {!recurrence && !sameMonthInstallments && (
+            {!recurrence && !sameMonthInstallments && (!editing || standaloneEdit) && (
               <label className="flex items-center gap-2 text-sm font-bold">
                 <CalendarClock className="h-4 w-4 text-blue-600" />
                 Parcelar em meses
@@ -1916,7 +1926,7 @@ function EntryForm({
                 </span>
               </label>
             )}
-            {!editing && (
+            {(!editing || standaloneEdit) && (
               <div className="col-span-full border-t border-blue-100 pt-3">
                 <label className="flex items-center gap-2 text-sm font-bold">
                   <input
@@ -1945,7 +1955,7 @@ function EntryForm({
                 </p>
               </div>
             )}
-            {sameMonthInstallments && !editing && (
+            {sameMonthInstallments && (!editing || standaloneEdit) && (
               <div className="col-span-full space-y-3 rounded-xl bg-white p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <label className="flex items-center gap-2 text-xs font-bold text-slate-700">
@@ -4182,7 +4192,21 @@ function App() {
       scope: "one" | "series",
       monthParts?: SameMonthPart[],
     ) => {
-      if (editing) {
+      // Lançamento avulso editado para dividir/parcelar/recorrente: cria a
+      // série nova e só depois apaga o original (se algo falhar, ele fica).
+      const replaced =
+        editing &&
+        !editing.seriesId &&
+        (Boolean(monthParts?.length) || data.recurrence === "mensal" || data.installments > 1)
+          ? editing
+          : null;
+      const finishReplacing = async () => {
+        if (!replaced) return;
+        await deleteRemoteEntries([replaced.id]);
+        setEntries((old) => old.filter((entry) => entry.id !== replaced.id));
+        setEditing(null);
+      };
+      if (editing && !replaced) {
         const isWholeSeries = scope === "series" && Boolean(editing.seriesId);
         const occurrences = isWholeSeries
           ? entries.filter((entry) => entry.seriesId === editing.seriesId)
@@ -4265,6 +4289,7 @@ function App() {
         ).flat();
         await saveRemoteEntries(created);
         setEntries((old) => [...created, ...old]);
+        await finishReplacing();
         void refreshContacts();
         return;
       }
@@ -4292,6 +4317,7 @@ function App() {
       });
       await saveRemoteEntries(created);
       setEntries((old) => [...created, ...old]);
+      await finishReplacing();
       void refreshContacts();
     },
     settle = async (x: Entry) => {
