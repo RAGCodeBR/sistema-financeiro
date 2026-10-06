@@ -20,7 +20,7 @@ import {
   saveRemoteEntries,
   setRemoteCounterpartyArchived,
 } from "../lib/bridge";
-import { changedSeriesFields, seriesDueDate } from "../lib/seriesDates";
+import { addMonthsClamped, changedSeriesFields, seriesDueDate } from "../lib/seriesDates";
 import { CurrencyInput, Month, fmt, labelMonth, moneyInput, parseMoney } from "./shared";
 import TeamNotesScreen from "./TeamNotes";
 import {
@@ -4092,15 +4092,12 @@ function App() {
         void refreshContacts();
         return;
       }
-      const base = new Date(`${data.date}T12:00:00`),
-        seriesId =
+      const seriesId =
           data.recurrence === "mensal" || data.installments > 1
             ? id()
             : undefined,
         count = data.recurrence === "mensal" ? 36 : data.installments;
       const created = Array.from({ length: count }, (_, i) => {
-        const due = new Date(base);
-        due.setMonth(base.getMonth() + i);
         return {
           ...data,
           id: id(),
@@ -4109,7 +4106,8 @@ function App() {
             data.recurrence === "mensal"
               ? data.amount
               : data.amount / data.installments,
-          date: due.toISOString().slice(0, 10),
+          // Limita ao último dia do mês: 31/07 + 2 meses = 30/09 (não 01/10).
+          date: addMonthsClamped(data.date, i),
           status: i === 0 ? data.status : "previsto",
           installments: 1,
           installment:

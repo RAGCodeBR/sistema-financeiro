@@ -65,3 +65,17 @@ export function seriesDueDate(
   const targetDay = Math.min(requestedDay, lastDay);
   return `${targetYear}-${String(targetMonth).padStart(2, "0")}-${String(targetDay).padStart(2, "0")}`;
 }
+
+/**
+ * Add whole months to a YYYY-MM-DD date, clamping the day to the target
+ * month's last day (31/07 + 2 months = 30/09, never 01/10). Plain
+ * Date#setMonth overflows short months and skips them entirely.
+ */
+export function addMonthsClamped(date: string, months: number) {
+  const [year, month, day] = date.split("-").map(Number);
+  const monthIndex = year * 12 + (month - 1) + months;
+  const targetYear = Math.floor(monthIndex / 12);
+  const targetMonth = monthIndex - targetYear * 12 + 1;
+  const lastDay = new Date(targetYear, targetMonth, 0).getDate();
+  return `${targetYear}-${String(targetMonth).padStart(2, "0")}-${String(Math.min(day, lastDay)).padStart(2, "0")}`;
+}
