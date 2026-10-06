@@ -318,11 +318,13 @@ function CurrencyInput({
   onChange,
   className = "",
   placeholder = "0,00",
+  required = true,
 }: {
   value: string;
   onChange: (value: string) => void;
   className?: string;
   placeholder?: string;
+  required?: boolean;
 }) {
   const parsed = parseMoney(value);
   const display = value && Number.isFinite(parsed) ? moneyInput(parsed) : "";
@@ -332,7 +334,7 @@ function CurrencyInput({
         R$
       </span>
       <input
-        required
+        required={required}
         inputMode="numeric"
         value={display}
         onChange={(event) => {
@@ -1802,7 +1804,7 @@ function EntryForm({
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="text-xs font-bold">
                 Juros pagos (R$)
-                <CurrencyInput value={juros} onChange={setJuros} />
+                <CurrencyInput value={juros} onChange={setJuros} required={false} />
                 <span className="mt-1 block font-normal text-slate-400">Opcional. Soma ao total pago.</span>
               </label>
               <label className="text-xs font-bold">
