@@ -29,7 +29,7 @@ function writeError(error: RemoteError) {
  * RLS always evaluates the active login instead of a token restored by the
  * browser from an older session.
  */
-async function withFreshSession<T>(write: () => Promise<{ data: T; error: any }>) {
+async function withFreshSession<T>(write: () => PromiseLike<{ data: T; error: any }>) {
   const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
   if (refreshError || !refreshed.session)
     throw new Error("Sua sessão expirou. Entre novamente para salvar os dados.");
@@ -186,4 +186,76 @@ export async function deleteRemoteCategory(categoryId: string) {
   await withFreshSession(() =>
     supabase.from("categories").delete().eq("id", categoryId),
   );
+}
+
+// ---------- Notas da equipe ----------
+
+export type TeamMember = {
+  id: string;
+  name: string;
+  service: string;
+  document: string;
+  email: string;
+  expected_amount: number | null;
+  due_day: number;
+  active: boolean;
+  created_at?: string;
+};
+
+export type TeamInvoice = {
+  id: string;
+  member_id: string;
+  competence: string;
+  invoice_number: string;
+  amount: number | null;
+  issue_date: string | null;
+  files: string[];
+  notes: string;
+  created_at?: string;
+};
+
+export async function saveTeamMember(member: Omit<TeamMember, "created_at">) {
+  if (!uuid(member.id)) throw new Error("Cadastro inválido.");
+  return withFreshSession(() =>
+    supabase.from("team_members").upsert(member).select("*").single(),
+  ) as Promise<TeamMember>;
+}
+
+export async function deleteTeamMember(id: string) {
+  await withFreshSession(() => supabase.from("team_members").delete().eq("id", id));
+}
+
+export async function saveTeamInvoice(invoice: Omit<TeamInvoice, "created_at">) {
+  if (!uuid(invoice.id)) throw new Error("Nota inválida.");
+  return withFreshSession(() =>
+    supabase.from("team_invoices").upsert(invoice).select("*").single(),
+  ) as Promise<TeamInvoice>;
+}
+
+export async function deleteTeamInvoice(id: string) {
+  await withFreshSession(() => supabase.from("team_invoices").delete().eq("id", id));
+}
+
+const teamNotesBucket = "team-notes";
+
+export async function uploadTeamNoteFile(path: string, file: File) {
+  const { error } = await supabase.storage
+    .from(teamNotesBucket)
+    .upload(path, file, { upsert: true, contentType: file.type || undefined });
+  if (error) throw new Error(error.message || "Não foi possível enviar o arquivo.");
+  return path;
+}
+
+export async function teamNoteFileUrl(path: string, downloadName?: string) {
+  const { data, error } = await supabase.storage
+    .from(teamNotesBucket)
+    .createSignedUrl(path, 600, downloadName ? { download: downloadName } : undefined);
+  if (error || !data?.signedUrl)
+    throw new Error(error?.message || "Não foi possível abrir o arquivo.");
+  return data.signedUrl;
+}
+
+export async function removeTeamNoteFiles(paths: string[]) {
+  if (!paths.length) return;
+  await supabase.storage.from(teamNotesBucket).remove(paths);
 }

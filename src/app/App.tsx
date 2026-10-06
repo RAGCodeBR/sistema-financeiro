@@ -21,15 +21,17 @@ import {
   setRemoteCounterpartyArchived,
 } from "../lib/bridge";
 import { changedSeriesFields, seriesDueDate } from "../lib/seriesDates";
+import { CurrencyInput, Month, fmt, labelMonth, moneyInput, parseMoney } from "./shared";
+import TeamNotesScreen from "./TeamNotes";
 import {
   AlertTriangle,
   Bell,
   BarChart3,
   Building2,
   CalendarClock,
-  ChevronLeft,
   ChevronRight,
   CreditCard,
+  FileText,
   LayoutDashboard,
   Menu,
   Paperclip,
@@ -120,6 +122,7 @@ type User = {
   role: "master" | "operador";
   units: Unit[];
   canViewReports: boolean;
+  canViewTeamNotes: boolean;
   hiddenScreens: string[];
 };
 // Abas que o Master pode ocultar por usuário (a aba "Usuários" é sempre
@@ -161,11 +164,14 @@ const units: CostCenter[] = [
   makeCostCenter("Pessoa Física", "PF", "amber"),
 ];
 const reportsAccessFlag = "__reports__";
+// Libera a aba "Notas da equipe" (além do Master).
+const teamNotesAccessFlag = "__team_notes__";
 const profileAccess = (values: string[] | null | undefined) => {
   const raw = values || [];
   return {
-    units: raw.filter((value) => value !== reportsAccessFlag),
+    units: raw.filter((value) => value !== reportsAccessFlag && value !== teamNotesAccessFlag),
     canViewReports: raw.includes(reportsAccessFlag),
+    canViewTeamNotes: raw.includes(teamNotesAccessFlag),
   };
 };
 const costCenterVisual = (row: CostCenterRow): CostCenter => {
@@ -267,8 +273,6 @@ const recurringOccurrenceId = (seriesId: string, date: string, slot = "") => {
     .join("");
   return `${raw.slice(0, 8)}-${raw.slice(8, 12)}-4${raw.slice(13, 16)}-8${raw.slice(17, 20)}-${raw.slice(20, 32)}`;
 };
-const fmt = (n: number) =>
-  n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const counterpartyKey = (kind: Kind, name: string) =>
   JSON.stringify([
     kind,
@@ -297,57 +301,6 @@ const contactsWithLegacyEntries = (saved: Counterparty[], entries: Entry[]) => {
     a.name.localeCompare(b.name, "pt-BR"),
   );
 };
-const parseMoney = (value: string) => {
-  const raw = value.replace(/R\$\s?/gi, "").replace(/\s/g, "");
-  if (!raw) return NaN;
-  if (raw.includes(","))
-    return Number(raw.replace(/\./g, "").replace(",", "."));
-  const parts = raw.split(".");
-  // In Brazilian notation, 1.500 means fifteen hundred. A dot followed by
-  // one or two digits is still accepted as a decimal separator for convenience.
-  if (parts.length > 1 && (parts.length > 2 || parts.at(-1)!.length === 3))
-    return Number(parts.join(""));
-  return Number(raw);
-};
-const moneyInput = (value: number) =>
-  value.toLocaleString("pt-BR", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-function CurrencyInput({
-  value,
-  onChange,
-  className = "",
-  placeholder = "0,00",
-  required = true,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  className?: string;
-  placeholder?: string;
-  required?: boolean;
-}) {
-  const parsed = parseMoney(value);
-  const display = value && Number.isFinite(parsed) ? moneyInput(parsed) : "";
-  return (
-    <div className="relative mt-1.5">
-      <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm font-bold text-gray-400">
-        R$
-      </span>
-      <input
-        required={required}
-        inputMode="numeric"
-        value={display}
-        onChange={(event) => {
-          const digits = event.target.value.replace(/\D/g, "");
-          onChange(digits ? String(Number(digits) / 100) : "");
-        }}
-        className={`w-full rounded-xl border bg-gray-50 p-3 pl-10 text-sm font-normal ${className}`}
-        placeholder={placeholder}
-      />
-    </div>
-  );
-}
 type SameMonthPart = { date: string; amount: string };
 const sameMonthParts = (count: number, total: number, baseDate: string) => {
   const safeCount = Math.max(2, Math.min(12, Math.floor(count) || 2));
@@ -377,10 +330,6 @@ const sameMonthParts = (count: number, total: number, baseDate: string) => {
     };
   });
 };
-const labelMonth = (d: Date) =>
-  d
-    .toLocaleDateString("pt-BR", { month: "long", year: "numeric" })
-    .replace(/^./, (c) => c.toUpperCase());
 
 function nextRecurringEntries(entries: Entry[]) {
   const startOfCurrentMonth = new Date(
@@ -478,27 +427,6 @@ function Icon({
     >
       {category?.icon || "🏷️"}
     </span>
-  );
-}
-function Month({ value, move }: { value: Date; move: (n: number) => void }) {
-  return (
-    <div className="flex items-center justify-center gap-3 rounded-xl border bg-gray-50 px-3 py-2.5">
-      <button
-        onClick={() => move(-1)}
-        className="rounded-lg p-1.5 hover:bg-white"
-      >
-        <ChevronLeft className="h-5 w-5" />
-      </button>
-      <span className="min-w-40 text-center text-sm font-extrabold text-[#14213d]">
-        {labelMonth(value)}
-      </span>
-      <button
-        onClick={() => move(1)}
-        className="rounded-lg p-1.5 hover:bg-white"
-      >
-        <ChevronRight className="h-5 w-5" />
-      </button>
-    </div>
   );
 }
 function ScopeDialog({
@@ -663,6 +591,7 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
       role: profile.role as User["role"],
       units: access.units,
       canViewReports: access.canViewReports,
+      canViewTeamNotes: access.canViewTeamNotes,
       hiddenScreens: profile.hidden_screens ?? [],
     };
     localStorage.setItem("fincore.user", JSON.stringify(user));
@@ -2062,6 +1991,7 @@ function UsersAdmin({
     units: Unit[],
     canViewReports: boolean,
     hiddenScreens: string[],
+    canViewTeamNotes: boolean,
   ) => Promise<void>;
 }) {
   const [name, setName] = useState("");
@@ -2076,6 +2006,7 @@ function UsersAdmin({
   const [editUnits, setEditUnits] = useState<Unit[]>([]);
   const [editCanViewReports, setEditCanViewReports] = useState(false);
   const [editHiddenScreens, setEditHiddenScreens] = useState<string[]>([]);
+  const [editCanViewTeamNotes, setEditCanViewTeamNotes] = useState(false);
   const [savingPermissions, setSavingPermissions] = useState(false);
   const toggleUnit = (unit: Unit) =>
     setSelectedUnits((current) =>
@@ -2104,6 +2035,7 @@ function UsersAdmin({
     setEditUnits(user.units);
     setEditCanViewReports(user.canViewReports);
     setEditHiddenScreens(user.hiddenScreens ?? []);
+    setEditCanViewTeamNotes(user.canViewTeamNotes);
   };
   const toggleEditUnit = (unit: Unit) =>
     setEditUnits((current) =>
@@ -2122,7 +2054,7 @@ function UsersAdmin({
     setSavingPermissions(true);
     setError("");
     try {
-      await updatePermissions(user, editUnits, editCanViewReports, editHiddenScreens);
+      await updatePermissions(user, editUnits, editCanViewReports, editHiddenScreens, editCanViewTeamNotes);
       setEditingUserId(null);
       setMessage(`Permissões de ${user.name} atualizadas.`);
     } catch (permissionError) {
@@ -2301,6 +2233,11 @@ function UsersAdmin({
                           Relatórios
                         </span>
                       )}
+                      {user.canViewTeamNotes && (
+                        <span className="rounded-full bg-teal-50 px-2 py-1 text-xs font-bold text-teal-700">
+                          Notas da equipe
+                        </span>
+                      )}
                       <button
                         onClick={() => startEditingPermissions(user)}
                         className="rounded-lg border border-blue-200 px-2.5 py-1.5 text-xs font-bold text-blue-700"
@@ -2374,6 +2311,16 @@ function UsersAdmin({
                       }
                     />
                     Permitir acesso à aba Relatórios
+                  </label>
+                  <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs font-bold text-teal-800">
+                    <input
+                      type="checkbox"
+                      checked={editCanViewTeamNotes}
+                      onChange={(event) =>
+                        setEditCanViewTeamNotes(event.target.checked)
+                      }
+                    />
+                    Permitir acesso à aba Notas da equipe
                   </label>
                   <div className="mt-3 flex justify-end gap-2">
                     <button
@@ -3502,6 +3449,7 @@ function App() {
         role: profile.role as User["role"],
         units: access.units,
         canViewReports: access.canViewReports,
+        canViewTeamNotes: access.canViewTeamNotes,
         hiddenScreens: profile.hidden_screens ?? [],
       });
       setAuthReady(true);
@@ -3662,6 +3610,8 @@ function App() {
     if (currentUser.role === "master") return true;
     if (id === "usuarios") return false;
     if (id === "relatorios" && !currentUser.canViewReports) return false;
+    // Aba opcional: só aparece para quem foi liberado (além do Master).
+    if (id === "notas") return currentUser.canViewTeamNotes;
     return !(currentUser.hiddenScreens ?? []).includes(id);
   };
   // Se o usuário estiver numa aba que foi removida dele, leva para a
@@ -3687,10 +3637,11 @@ function App() {
           name: profile.full_name,
           email:
             profile.email ||
-            (profile.id === currentUser?.id ? currentUser.email : ""),
+            (profile.id === currentUser?.id ? currentUser?.email ?? "" : ""),
           role: profile.role as User["role"],
           units: access.units,
           canViewReports: access.canViewReports,
+          canViewTeamNotes: access.canViewTeamNotes,
           hiddenScreens: profile.hidden_screens ?? [],
         };
       }),
@@ -3704,7 +3655,7 @@ function App() {
   const createCenter = async (name: string, initials: string, color: string) => {
     if (currentUser?.role !== "master") throw new Error("Apenas o Master pode criar planos de contas.");
     if (!centerTableReady) throw new Error("A configuração do banco para novos centros ainda não está disponível.");
-    if (name.length < 2 || name.length > 80 || name === "Todos" || name === reportsAccessFlag)
+    if (name.length < 2 || name.length > 80 || name === "Todos" || name === reportsAccessFlag || name === teamNotesAccessFlag)
       throw new Error("Informe um nome válido entre 2 e 80 caracteres.");
     if (centers.some((center) => center.name.toLocaleLowerCase("pt-BR") === name.toLocaleLowerCase("pt-BR")))
       throw new Error("Já existe um centro de custo com esse nome.");
@@ -3730,8 +3681,8 @@ function App() {
   };
   const deleteCenter = async (name: string) => {
     if (currentUser?.role !== "master") throw new Error("Apenas o Master pode excluir planos de contas.");
-    const { error } = await deleteRemoteCostCenter(name);
-    if (error) throw error;
+    // withFreshSession já lança o erro se a exclusão falhar.
+    await deleteRemoteCostCenter(name);
     // O banco apaga em cascata; aqui só mantemos a tela em sincronia.
     setCenters((old) => old.filter((item) => item.name !== name));
     setCategories((old) => old.filter((item) => item.unit !== name));
@@ -3823,6 +3774,7 @@ function App() {
     const allowedUnits = [
       ...user.units,
       ...(user.canViewReports ? [] : [reportsAccessFlag]),
+      ...(user.canViewTeamNotes ? [teamNotesAccessFlag] : []),
     ];
     const { error } = await supabase
       .from("profiles")
@@ -3836,6 +3788,7 @@ function App() {
     allowedUnits: Unit[],
     canViewReports: boolean,
     hiddenScreens: string[],
+    canViewTeamNotes: boolean,
   ) => {
     const { error } = await supabase
       .from("profiles")
@@ -3843,6 +3796,7 @@ function App() {
         allowed_units: [
           ...allowedUnits,
           ...(canViewReports ? [reportsAccessFlag] : []),
+          ...(canViewTeamNotes ? [teamNotesAccessFlag] : []),
         ],
         hidden_screens: hiddenScreens,
       })
@@ -4256,6 +4210,7 @@ function App() {
       { id: "contas", text: "Contas", Icon: Wallet },
       { id: "categorias", text: "Plano de contas", Icon: Tag },
       { id: "contatos", text: "Fornecedores/clientes", Icon: Building2 },
+      { id: "notas", text: "Notas da equipe", Icon: FileText },
       { id: "relatorios", text: "Relatórios", Icon: BarChart3 },
       { id: "usuarios", text: "Usuários", Icon: Menu },
     ];
@@ -4334,6 +4289,8 @@ function App() {
                       ? "Plano de contas"
                       : screen === "contatos"
                         ? "Fornecedores/clientes"
+                      : screen === "notas"
+                        ? "Notas da equipe"
                       : screen === "usuarios"
                         ? "Usuários e acessos"
                         : screen === "relatorios"
@@ -4825,6 +4782,8 @@ function App() {
                 );
               }}
             />
+          ) : screen === "notas" ? (
+            <TeamNotesScreen />
           ) : screen === "relatorios" ? (
             <Reports
               entries={entries.filter(
