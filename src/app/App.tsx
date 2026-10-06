@@ -6,7 +6,10 @@ import {
   supabaseUrl,
 } from "../lib/supabase";
 import {
+  Bank,
   createRemoteCostCenter,
+  deleteBank,
+  saveBank,
   updateRemoteCostCenter,
   deleteRemoteCostCenter,
   uploadEntryAttachment,
@@ -23,6 +26,7 @@ import {
 import { addMonthsClamped, changedSeriesFields, seriesDueDate } from "../lib/seriesDates";
 import { CurrencyInput, Month, fmt, labelMonth, moneyInput, parseMoney } from "./shared";
 import TeamNotesScreen from "./TeamNotes";
+import BanksSection from "./Banks";
 import {
   AlertTriangle,
   Bell,
@@ -38,6 +42,7 @@ import {
   Plus,
   ReceiptText,
   Repeat2,
+  Search,
   Tag,
   TrendingDown,
   TrendingUp,
@@ -89,10 +94,19 @@ type Entry = {
   attachments?: string[];
   juros?: number;
   paidDate?: string;
+  discount?: number;
+  bankId?: string | null;
 };
-// Valor que efetivamente saiu/entrou: numa despesa já paga, soma os juros.
+// Busca sem diferenciar acentos nem maiúsculas ("divida" acha "Dívida").
+const normalizeSearch = (text: string) =>
+  text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR").trim();
+// Valor que efetivamente saiu/entrou: numa despesa já paga, soma os juros e
+// abate o desconto.
 const entryValue = (entry: Entry) =>
-  entry.amount + (entry.kind === "despesa" && entry.status === "realizado" ? entry.juros || 0 : 0);
+  entry.amount +
+  (entry.kind === "despesa" && entry.status === "realizado"
+    ? (entry.juros || 0) - (entry.discount || 0)
+    : 0);
 // Dias de atraso de uma despesa paga: diferença entre pagamento e vencimento.
 const lateDays = (entry: Entry) =>
   entry.paidDate && entry.paidDate > entry.date
@@ -1226,6 +1240,7 @@ function EntryForm({
   contacts,
   contactsTableReady,
   allowedUnits,
+  banks,
   editing,
   scope: initialScope,
   close,
@@ -1236,6 +1251,7 @@ function EntryForm({
   contacts: Counterparty[];
   contactsTableReady: boolean;
   allowedUnits: typeof units;
+  banks: Bank[];
   editing: Entry | null;
   scope?: "one" | "series";
   close: () => void;
@@ -1268,7 +1284,14 @@ function EntryForm({
     ),
     [pix, setPix] = useState(editing?.pix ?? ""),
     [notes, setNotes] = useState(editing?.notes ?? ""),
-    [juros, setJuros] = useState(editing?.juros ? String(editing.juros) : ""),
+    // Valor efetivamente pago; juros e desconto são calculados a partir dele.
+    [paidValue, setPaidValue] = useState(
+      editing && ((editing.juros ?? 0) > 0 || (editing.discount ?? 0) > 0)
+        ? String(Math.round((editing.amount + (editing.juros ?? 0) - (editing.discount ?? 0)) * 100) / 100)
+        : "",
+    ),
+    [bankId, setBankId] = useState<string>(editing?.bankId ?? ""),
+    [dragging, setDragging] = useState(false),
     [paidDate, setPaidDate] = useState(editing?.paidDate ?? ""),
     [amount, setAmount] = useState(editing ? String(editing.amount) : ""),
     [date, setDate] = useState(
@@ -1301,6 +1324,44 @@ function EntryForm({
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : "Não foi possível abrir o arquivo.");
     }
+  };
+  // O valor pago vale para um único pagamento: aparece em despesas avulsas e
+  // ao editar um só mês, mas não ao criar um parcelamento/recorrência nem ao
+  // editar "Toda a série" (senão o valor de um mês seria copiado para todos).
+  const showPaidValue =
+    kind === "despesa" &&
+    (editing
+      ? scope !== "series"
+      : !recurrence && installments <= 1 && !sameMonthInstallments);
+  const paidNumber = parseMoney(paidValue);
+  const amountNumber = parseMoney(amount);
+  const paidDiff =
+    showPaidValue && Number.isFinite(paidNumber) && Number.isFinite(amountNumber)
+      ? Math.round((paidNumber - amountNumber) * 100) / 100
+      : 0;
+  const computedJuros = paidDiff > 0 ? paidDiff : 0;
+  const computedDiscount = paidDiff < 0 ? -paidDiff : 0;
+  // Com o campo oculto na edição, mantém os valores que o lançamento já tinha.
+  const finalJuros = showPaidValue ? computedJuros : editing?.juros ?? 0;
+  const finalDiscount = showPaidValue ? computedDiscount : editing?.discount ?? 0;
+  const addFiles = (picked: File[]) => {
+    if (!picked.length) return;
+    const invalid = picked.find(
+      (file) =>
+        !["application/pdf", "image/png", "image/jpeg"].includes(file.type) &&
+        !/\.(pdf|png|jpe?g)$/i.test(file.name),
+    );
+    if (invalid) {
+      setSaveError(`"${invalid.name}" não é aceito. Envie PDF, PNG ou JPG.`);
+      return;
+    }
+    const tooBig = picked.find((file) => file.size > 10 * 1024 * 1024);
+    if (tooBig) {
+      setSaveError(`O arquivo "${tooBig.name}" passa de 10 MB. Reduza o tamanho e tente novamente.`);
+      return;
+    }
+    setNewFiles((old) => [...old, ...picked]);
+    setSaveError("");
   };
   const available = categories.filter(
     (c) => c.unit === unit && c.kind === kind,
@@ -1426,8 +1487,11 @@ function EntryForm({
           recurrence: recurrence ? "mensal" : "nenhuma",
           installments: sameMonthInstallments ? 1 : installments,
           attachments,
-          juros: kind === "despesa" ? parseMoney(juros) || 0 : 0,
+          juros: kind === "despesa" ? finalJuros : 0,
           paidDate: kind === "despesa" ? paidDate || undefined : undefined,
+          ...(kind === "despesa"
+            ? { discount: finalDiscount, bankId: bankId || null }
+            : {}),
         },
         scope,
         sameMonthInstallments ? sameMonthPartsState : undefined,
@@ -1451,7 +1515,17 @@ function EntryForm({
     }
   };
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4"
+      // Soltar um arquivo em qualquer ponto do formulário anexa o arquivo, em
+      // vez de o navegador sair da tela para abri-lo.
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={(event) => {
+        event.preventDefault();
+        setDragging(false);
+        addFiles(Array.from(event.dataTransfer.files));
+      }}
+    >
       <form
         onSubmit={submit}
         className="max-h-[94vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl"
@@ -1680,23 +1754,36 @@ function EntryForm({
                   </button>
                 </div>
               ))}
-              <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white p-3 text-xs font-bold text-slate-600 hover:border-blue-300 hover:text-blue-700">
-                <Plus className="h-4 w-4" />
-                Anexar arquivo (PDF, PNG ou JPG)
+              <label
+                onDragEnter={(event) => {
+                  event.preventDefault();
+                  setDragging(true);
+                }}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setDragging(true);
+                }}
+                onDragLeave={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false);
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setDragging(false);
+                  addFiles(Array.from(event.dataTransfer.files));
+                }}
+                className={`flex cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed p-5 text-xs font-bold transition ${dragging ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-300 bg-white text-slate-600 hover:border-blue-300 hover:text-blue-700"}`}
+              >
+                <Plus className="h-5 w-5" />
+                {dragging ? "Solte o arquivo para anexar" : "Arraste o arquivo aqui ou clique para escolher"}
+                <span className="font-normal text-slate-400">PDF, PNG ou JPG · até 10 MB</span>
                 <input
                   type="file"
                   accept="image/png,image/jpeg,application/pdf"
                   multiple
                   className="hidden"
                   onChange={(event) => {
-                    const picked = Array.from(event.target.files ?? []);
-                    const tooBig = picked.find((file) => file.size > 10 * 1024 * 1024);
-                    if (tooBig) {
-                      setSaveError(`O arquivo "${tooBig.name}" passa de 10 MB. Reduza o tamanho e tente novamente.`);
-                    } else {
-                      setNewFiles((old) => [...old, ...picked]);
-                      setSaveError("");
-                    }
+                    addFiles(Array.from(event.target.files ?? []));
                     event.target.value = "";
                   }}
                 />
@@ -1732,11 +1819,23 @@ function EntryForm({
           </div>
           {kind === "despesa" && (
             <div className="grid gap-4 sm:grid-cols-2">
-              <label className="text-xs font-bold">
-                Juros pagos (R$)
-                <CurrencyInput value={juros} onChange={setJuros} required={false} />
-                <span className="mt-1 block font-normal text-slate-400">Opcional. Soma ao total pago.</span>
-              </label>
+              {showPaidValue && (
+                <label className="text-xs font-bold">
+                  Valor pago (R$)
+                  <CurrencyInput value={paidValue} onChange={setPaidValue} required={false} placeholder="Opcional" />
+                  <span className="mt-1 block font-normal">
+                    {computedJuros > 0 ? (
+                      <span className="font-bold text-red-600">Juros: {fmt(computedJuros)}</span>
+                    ) : computedDiscount > 0 ? (
+                      <span className="font-bold text-emerald-700">Juros R$ 0,00 · Desconto: {fmt(computedDiscount)}</span>
+                    ) : Number.isFinite(paidNumber) ? (
+                      <span className="text-slate-500">Pago sem juros nem desconto.</span>
+                    ) : (
+                      <span className="text-slate-400">Informe quanto pagou de fato: o sistema calcula juros ou desconto.</span>
+                    )}
+                  </span>
+                </label>
+              )}
               <label className="text-xs font-bold">
                 Data do pagamento
                 <input
@@ -1746,6 +1845,24 @@ function EntryForm({
                   className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal"
                 />
                 <span className="mt-1 block font-normal text-slate-400">Mede o atraso em relação ao vencimento (campo Data).</span>
+              </label>
+              <label className="text-xs font-bold">
+                Banco que pagou
+                <select
+                  value={bankId}
+                  onChange={(e) => setBankId(e.target.value)}
+                  className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal"
+                >
+                  <option value="">Não informado</option>
+                  {banks.map((bank) => (
+                    <option key={bank.id} value={bank.id}>
+                      {bank.name}
+                    </option>
+                  ))}
+                </select>
+                {!banks.length && (
+                  <span className="mt-1 block font-normal text-slate-400">Cadastre os bancos na aba Contas.</span>
+                )}
               </label>
             </div>
           )}
@@ -2355,16 +2472,25 @@ function UsersAdmin({
 function Entries({
   entries,
   categories,
+  banks = [],
   settle,
   edit,
   remove,
+  open,
 }: {
   entries: Entry[];
   categories: Category[];
+  banks?: Bank[];
   settle: (x: Entry) => void;
   edit: (x: Entry) => void;
   remove: (x: Entry) => void;
+  /** Clique na linha: abre direto a edição deste lançamento (só este mês). */
+  open?: (x: Entry) => void;
 }) {
+  const bankName = (bankId?: string | null) =>
+    bankId ? banks.find((bank) => bank.id === bankId)?.name : undefined;
+  const now = new Date();
+  const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   const attachmentLabel = (path: string) =>
     (path.split("/").pop() || path).replace(/^\d+-/, "");
   const openAttachment = async (path: string) => {
@@ -2391,7 +2517,21 @@ function Entries({
               v.name === x.category && v.unit === x.unit && v.kind === x.kind,
           );
           return (
-            <div key={x.id} className="flex flex-wrap items-center gap-3 py-3">
+            <div
+              key={x.id}
+              role={open ? "button" : undefined}
+              tabIndex={open ? 0 : undefined}
+              title={open ? "Clique para editar este lançamento" : undefined}
+              onClick={(event) => {
+                // Botões e anexos dentro da linha mantêm a própria ação.
+                if (!open || (event.target as HTMLElement).closest("button, a, input, label")) return;
+                open(x);
+              }}
+              onKeyDown={(event) => {
+                if (open && event.key === "Enter" && event.target === event.currentTarget) open(x);
+              }}
+              className={`flex flex-wrap items-center gap-3 py-3 ${open ? "-mx-2 cursor-pointer rounded-xl px-2 transition hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600" : ""}`}
+            >
               <Icon category={c} />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-bold text-gray-800">
@@ -2400,9 +2540,15 @@ function Entries({
                     <span className="text-gray-400">({x.installment})</span>
                   )}
                 </p>
-                <p className="text-[11px] text-gray-400">
-                  {x.unit} · {x.category} · {x.account} ·{" "}
-                  {new Date(`${x.date}T12:00:00`).toLocaleDateString("pt-BR")}
+                <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-gray-400">
+                  <span
+                    className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-extrabold ${x.status === "previsto" && x.date < todayKey ? "bg-red-50 text-red-700" : "bg-slate-100 text-slate-800"}`}
+                    title={x.status === "previsto" && x.date < todayKey ? "Vencido e ainda não pago" : "Data de vencimento"}
+                  >
+                    <CalendarClock className="h-3.5 w-3.5" />
+                    {new Date(`${x.date}T12:00:00`).toLocaleDateString("pt-BR")}
+                  </span>
+                  <span>{x.unit} · {x.category} · {x.account}</span>
                 </p>
                 {x.beneficiary?.trim() && (
                   <p className="mt-1 text-xs font-medium text-slate-600">
@@ -2439,12 +2585,19 @@ function Entries({
                     ))}
                   </div>
                 )}
-                {x.kind === "despesa" && ((x.juros ?? 0) > 0 || x.paidDate) && (
+                {x.kind === "despesa" &&
+                  ((x.juros ?? 0) > 0 || (x.discount ?? 0) > 0 || x.paidDate || bankName(x.bankId)) && (
                   <div className="mt-1 space-y-0.5 text-[11px]">
-                    {(x.juros ?? 0) > 0 && (
+                    {((x.juros ?? 0) > 0 || (x.discount ?? 0) > 0) && (
                       <p className="text-slate-500">
-                        Valor {fmt(x.amount)} · Juros <b className="text-red-600">{fmt(x.juros ?? 0)}</b> · Total <b className="text-slate-700">{fmt(entryValue(x))}</b>
+                        Valor {fmt(x.amount)}
+                        {(x.juros ?? 0) > 0 && <> · Juros <b className="text-red-600">{fmt(x.juros ?? 0)}</b></>}
+                        {(x.discount ?? 0) > 0 && <> · Desconto <b className="text-emerald-700">{fmt(x.discount ?? 0)}</b></>}
+                        {" "}· Total pago <b className="text-slate-700">{fmt(entryValue(x))}</b>
                       </p>
+                    )}
+                    {bankName(x.bankId) && (
+                      <p className="font-bold text-slate-600">Banco: {bankName(x.bankId)}</p>
                     )}
                     {x.paidDate && (
                       <p className="text-slate-500">
@@ -3298,16 +3451,17 @@ function Reports({
                       {entry.installment && <span className="font-normal text-slate-400"> ({entry.installment})</span>}
                     </p>
                     <p className="truncate text-[11px] text-slate-400">
-                      {entry.unit} · {entry.category} · {dateLabel(entry.date)}
+                      <b className="text-xs font-extrabold text-slate-800">{dateLabel(entry.date)}</b> · {entry.unit} · {entry.category}
                     </p>
                     {entry.beneficiary?.trim() && (
                       <p className="truncate text-[11px] text-slate-500">
                         {entry.kind === "despesa" ? "Fornecedor" : "Cliente"}: {entry.beneficiary.trim()}
                       </p>
                     )}
-                    {entry.kind === "despesa" && ((entry.juros || 0) > 0 || entry.paidDate) && (
+                    {entry.kind === "despesa" && ((entry.juros || 0) > 0 || (entry.discount || 0) > 0 || entry.paidDate) && (
                       <p className="text-[11px] text-slate-500">
                         {(entry.juros || 0) > 0 && <>Juros <b className="text-red-600">{fmt(entry.juros || 0)}</b> · </>}
+                        {(entry.discount || 0) > 0 && <>Desconto <b className="text-emerald-700">{fmt(entry.discount || 0)}</b> · </>}
                         {entry.paidDate && (lateDays(entry) > 0
                           ? <>Pago em {new Date(`${entry.paidDate}T12:00:00`).toLocaleDateString("pt-BR")} · <b className="text-orange-600">{lateDays(entry)} dia(s) de atraso</b></>
                           : <>Pago em dia</>)}
@@ -3380,6 +3534,8 @@ function App() {
     [entries, setEntries] = useState<Entry[]>([]),
     [savedContacts, setSavedContacts] = useState<Counterparty[]>([]),
     [contactsTableReady, setContactsTableReady] = useState(false),
+    [banks, setBanks] = useState<Bank[]>([]),
+    [banksReady, setBanksReady] = useState(false),
     [categories, setCategories] = useState<Category[]>([]),
     [centers, setCenters] = useState<CostCenter[]>(units),
     [centerTableReady, setCenterTableReady] = useState(false),
@@ -3398,6 +3554,7 @@ function App() {
     [periodFrom, setPeriodFrom] = useState(""),
     [periodTo, setPeriodTo] = useState(""),
     [counterpartyFilter, setCounterpartyFilter] = useState("todos"),
+    [search, setSearch] = useState(""),
     [overdueKind, setOverdueKind] = useState<Kind | "todos">("todos"),
     [notificationsOpen, setNotificationsOpen] = useState(false),
     [menu, setMenu] = useState(false),
@@ -3466,6 +3623,8 @@ function App() {
       setContactsTableReady(false);
       setCenters(units);
       setCenterTableReady(false);
+      setBanks([]);
+      setBanksReady(false);
       return () => {
         active = false;
       };
@@ -3505,6 +3664,8 @@ function App() {
           amount: Number(row.amount),
           juros: row.juros != null ? Number(row.juros) : 0,
           paidDate: row.paid_date || undefined,
+          discount: row.discount != null ? Number(row.discount) : undefined,
+          bankId: row.bank_id === undefined ? undefined : row.bank_id,
         })) as Entry[];
         // The new registry has its own migration. Until it is applied, the
         // old production database and existing launches must remain readable.
@@ -3523,6 +3684,14 @@ function App() {
           centerTableAvailable = true;
         } catch (centerError) {
           console.info("Fincore: cadastro de centros ainda indisponível", centerError);
+        }
+        let bankRows: Bank[] = [];
+        let bankTableAvailable = false;
+        try {
+          bankRows = await readAuthenticatedRows<Bank>("banks", "name.asc");
+          bankTableAvailable = true;
+        } catch (bankError) {
+          console.info("Fincore: cadastro de bancos ainda indisponível", bankError);
         }
         // Keep recurring series alive without pre-creating decades of records.
         // Only missing months inside the rolling three-year window are written.
@@ -3547,6 +3716,8 @@ function App() {
         setContactsTableReady(contactTableAvailable);
         setCenters(centerTableAvailable ? centerRows.map(costCenterVisual) : units);
         setCenterTableReady(centerTableAvailable);
+        setBanks(bankRows);
+        setBanksReady(bankTableAvailable);
         setCategories(categoryRows);
         setAccounts(
           accountRows.map((row: any) => ({
@@ -3586,6 +3757,8 @@ function App() {
             amount: Number(row.amount),
             juros: row.juros != null ? Number(row.juros) : 0,
             paidDate: row.paid_date || undefined,
+            discount: row.discount != null ? Number(row.discount) : undefined,
+            bankId: row.bank_id === undefined ? undefined : row.bank_id,
           })) as Entry[]);
         }
       } catch (error) {
@@ -3965,6 +4138,7 @@ function App() {
     openOverdue = (kind: Kind | "todos" = "todos") => {
       setFilter("Todos");
       setCounterpartyFilter("todos");
+      setSearch("");
       setOverdueKind(kind);
       setEntryFilter("atrasadas");
       setNotificationsOpen(false);
@@ -3973,6 +4147,7 @@ function App() {
     openPayToday = () => {
       setFilter("Todos");
       setCounterpartyFilter("todos");
+      setSearch("");
       setOverdueKind("todos");
       setPeriodMode("hoje");
       setEntryFilter("pagar");
@@ -3985,6 +4160,7 @@ function App() {
       }
       setFilter("Todos");
       setCounterpartyFilter("todos");
+      setSearch("");
       setEntryFilter(entry.kind === "despesa" ? "pagar" : "receber");
       setPeriodMode("mes");
       setMonth(new Date(`${entry.date}T12:00:00`));
@@ -4148,11 +4324,19 @@ function App() {
     open = (kind: Kind) => {
       setFilter("Todos");
       setCounterpartyFilter("todos");
+      setSearch("");
       setEditing(null);
       setModal(kind);
       setScreen("lancamentos");
     },
-    list = (entryFilter === "atrasadas" ? overdue : listCurrent)
+    searchText = normalizeSearch(search),
+    // Com texto na busca, procura em todos os meses (os outros filtros valem).
+    list = (entryFilter === "atrasadas" ? overdue : searchText ? visible : listCurrent)
+      .filter(
+        (x) =>
+          !searchText ||
+          normalizeSearch(`${x.description} ${x.beneficiary || ""}`).includes(searchText),
+      )
       .filter((x) => filter === "Todos" || x.unit === filter)
       .filter(
         (x) =>
@@ -4243,6 +4427,7 @@ function App() {
                   if (x.id === "lancamentos") {
                     setFilter("Todos");
                     setCounterpartyFilter("todos");
+                    setSearch("");
                     setEntryFilter("todos");
                     setOverdueKind("todos");
                     setPeriodMode("mes");
@@ -4451,6 +4636,7 @@ function App() {
                         }
                         setFilter("Todos");
                         setCounterpartyFilter("todos");
+                        setSearch("");
                         setOverdueKind("todos");
                         setPeriodMode("mes");
                         setEntryFilter(targetFilter);
@@ -4679,12 +4865,19 @@ function App() {
                 <Entries
                   entries={current.slice(0, 5)}
                   categories={categories}
+                  banks={banks}
                   settle={settle}
                   edit={(x) =>
                     x.seriesId
                       ? setScopeDialog({ entry: x, action: "editar" })
                       : (setEditScope("one"), setEditing(x), setModal(x.kind))
                   }
+                  open={(x) => {
+                    // Atalho: edita só este mês, sem perguntar "Este mês / Toda a série".
+                    setEditScope("one");
+                    setEditing(x);
+                    setModal(x.kind);
+                  }}
                   remove={(x) =>
                     x.seriesId
                       ? setScopeDialog({ entry: x, action: "excluir" })
@@ -4694,6 +4887,7 @@ function App() {
               </section>
             </>
           ) : screen === "contas" ? (
+            <>
             <section className="rounded-2xl bg-white p-5 shadow-sm">
               <div className="mb-5 flex items-center justify-between">
                 <div>
@@ -4751,6 +4945,17 @@ function App() {
                   ))}
               </div>
             </section>
+            <BanksSection
+              banks={banks}
+              ready={banksReady}
+              canManage={currentUser.role === "master"}
+              usage={entries.reduce<Record<string, number>>((count, entry) => {
+                if (entry.bankId) count[entry.bankId] = (count[entry.bankId] ?? 0) + 1;
+                return count;
+              }, {})}
+              setBanks={setBanks}
+            />
+            </>
           ) : screen === "contatos" ? (
             <ContactsScreen
               contacts={contacts}
@@ -4966,6 +5171,32 @@ function App() {
               </div>
               <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
                 <div className="space-y-2">
+                  <div className="relative max-w-md">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="search"
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                      placeholder="Buscar lançamento pelo nome…"
+                      aria-label="Buscar lançamento pelo nome"
+                      className="w-full rounded-xl border bg-white py-2.5 pl-9 pr-9 text-sm"
+                    />
+                    {search && (
+                      <button
+                        type="button"
+                        onClick={() => setSearch("")}
+                        aria-label="Limpar busca"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                  {searchText && (
+                    <p className="text-[11px] font-semibold text-blue-700">
+                      Buscando “{search.trim()}” em todos os meses · {list.length} resultado(s)
+                    </p>
+                  )}
                   <div className="flex flex-wrap gap-2">
                     {[
                       ["todos", "Todos"],
@@ -5089,7 +5320,7 @@ function App() {
                     </select>
                   </label>
                 </div>
-                {entryFilter === "atrasadas" ? (
+                {entryFilter === "atrasadas" || searchText ? (
                   <span className="rounded-full bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600">Todos os meses</span>
                 ) : periodMode === "mes" ? (
                   <Month value={month} move={move} />
@@ -5121,12 +5352,19 @@ function App() {
               <Entries
                 entries={list}
                 categories={categories}
+                banks={banks}
                 settle={settle}
                 edit={(x) =>
                   x.seriesId
                     ? setScopeDialog({ entry: x, action: "editar" })
                     : (setEditScope("one"), setEditing(x), setModal(x.kind))
                 }
+                open={(x) => {
+                  // Atalho: edita só este mês, sem perguntar "Este mês / Toda a série".
+                  setEditScope("one");
+                  setEditing(x);
+                  setModal(x.kind);
+                }}
                 remove={(x) =>
                   x.seriesId
                     ? setScopeDialog({ entry: x, action: "excluir" })
@@ -5161,6 +5399,7 @@ function App() {
           contacts={contacts}
           contactsTableReady={contactsTableReady}
           allowedUnits={allowedUnits}
+          banks={banks}
           editing={editing}
           scope={editScope}
           close={() => {

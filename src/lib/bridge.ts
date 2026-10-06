@@ -73,6 +73,8 @@ function entryRow(entry: any) {
     ...(entry.attachments !== undefined ? { attachments: entry.attachments } : {}),
     ...(entry.juros !== undefined ? { juros: entry.juros } : {}),
     ...(entry.paidDate !== undefined ? { paid_date: entry.paidDate || null } : {}),
+    ...(entry.discount !== undefined ? { discount: entry.discount } : {}),
+    ...(entry.bankId !== undefined ? { bank_id: uuid(entry.bankId) ? entry.bankId : null } : {}),
   };
 }
 
@@ -199,6 +201,7 @@ export type TeamMember = {
   expected_amount: number | null;
   due_day: number;
   active: boolean;
+  category_id?: string | null;
   created_at?: string;
 };
 
@@ -236,6 +239,19 @@ export async function deleteTeamInvoice(id: string) {
   await withFreshSession(() => supabase.from("team_invoices").delete().eq("id", id));
 }
 
+export type TeamCategory = { id: string; name: string; created_at?: string };
+
+export async function saveTeamCategory(category: { id: string; name: string }) {
+  if (!uuid(category.id)) throw new Error("Categoria inválida.");
+  return withFreshSession(() =>
+    supabase.from("team_categories").upsert(category).select("*").single(),
+  ) as Promise<TeamCategory>;
+}
+
+export async function deleteTeamCategory(id: string) {
+  await withFreshSession(() => supabase.from("team_categories").delete().eq("id", id));
+}
+
 const teamNotesBucket = "team-notes";
 
 export async function uploadTeamNoteFile(path: string, file: File) {
@@ -258,4 +274,19 @@ export async function teamNoteFileUrl(path: string, downloadName?: string) {
 export async function removeTeamNoteFiles(paths: string[]) {
   if (!paths.length) return;
   await supabase.storage.from(teamNotesBucket).remove(paths);
+}
+
+// ---------- Bancos ----------
+
+export type Bank = { id: string; name: string; created_at?: string };
+
+export async function saveBank(bank: { id: string; name: string }) {
+  if (!uuid(bank.id)) throw new Error("Banco inválido.");
+  return withFreshSession(() =>
+    supabase.from("banks").upsert(bank).select("*").single(),
+  ) as Promise<Bank>;
+}
+
+export async function deleteBank(id: string) {
+  await withFreshSession(() => supabase.from("banks").delete().eq("id", id));
 }

@@ -6,16 +6,20 @@ import {
   Paperclip,
   Pencil,
   Plus,
+  Tag,
   Trash2,
   X,
 } from "lucide-react";
 import { readAuthenticatedRows } from "../lib/supabase";
 import {
+  TeamCategory,
   TeamInvoice,
   TeamMember,
+  deleteTeamCategory,
   deleteTeamInvoice,
   deleteTeamMember,
   removeTeamNoteFiles,
+  saveTeamCategory,
   saveTeamInvoice,
   saveTeamMember,
   teamNoteFileUrl,
@@ -66,7 +70,9 @@ export default function TeamNotesScreen() {
   const [invoiceForm, setInvoiceForm] = useState<{ member: TeamMember; invoice: TeamInvoice | null } | null>(null);
   const [viewer, setViewer] = useState<{ member: TeamMember; invoice: TeamInvoice } | null>(null);
   const [deletingMember, setDeletingMember] = useState<TeamMember | null>(null);
-  const [showMembers, setShowMembers] = useState(false);
+  const [tab, setTab] = useState<"notas" | "colaboradores" | "categorias">("notas");
+  const [categories, setCategories] = useState<TeamCategory[]>([]);
+  const [categoriesReady, setCategoriesReady] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -78,6 +84,13 @@ export default function TeamNotesScreen() {
       ]);
       setMembers(memberRows.map((row) => ({ ...row, expected_amount: toNumber(row.expected_amount), due_day: Number(row.due_day) })));
       setInvoices(invoiceRows.map((row) => ({ ...row, amount: toNumber(row.amount), files: row.files ?? [] })));
+      try {
+        setCategories(await readAuthenticatedRows<TeamCategory>("team_categories", "name.asc"));
+        setCategoriesReady(true);
+      } catch (categoryError) {
+        console.info("Fincore: categorias da equipe ainda indisponíveis", categoryError);
+        setCategoriesReady(false);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
       setLoadError(
@@ -93,6 +106,8 @@ export default function TeamNotesScreen() {
     void load();
   }, []);
 
+  const categoryName = (id?: string | null) =>
+    id ? categories.find((category) => category.id === id)?.name : undefined;
   const key = monthKey(month);
   const todayStr = localDate(new Date());
   const invoiceFor = (memberId: string, competence: string) =>
@@ -150,25 +165,50 @@ export default function TeamNotesScreen() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Month
-              value={month}
-              move={(n) => setMonth((value) => new Date(value.getFullYear(), value.getMonth() + n, 1))}
-            />
-            <button
-              type="button"
-              onClick={() => setMemberForm("new")}
-              className="flex items-center gap-1 rounded-xl bg-blue-700 px-3 py-2.5 text-xs font-bold text-white hover:bg-blue-800"
-            >
-              <Plus className="h-4 w-4" />
-              Novo colaborador
-            </button>
+            {tab === "notas" && (
+              <Month
+                value={month}
+                move={(n) => setMonth((value) => new Date(value.getFullYear(), value.getMonth() + n, 1))}
+              />
+            )}
+            {tab !== "categorias" && (
+              <button
+                type="button"
+                onClick={() => setMemberForm("new")}
+                className="flex items-center gap-1 rounded-xl bg-blue-700 px-3 py-2.5 text-xs font-bold text-white hover:bg-blue-800"
+              >
+                <Plus className="h-4 w-4" />
+                Novo colaborador
+              </button>
+            )}
           </div>
+        </div>
+
+        <div role="tablist" aria-label="Seções de Notas da equipe" className="mt-4 flex flex-wrap gap-1 border-b">
+          {([
+            ["notas", "Notas do mês"],
+            ["colaboradores", `Colaboradores (${members.length})`],
+            ["categorias", `Categorias (${categories.length})`],
+          ] as const).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              role="tab"
+              aria-selected={tab === value}
+              onClick={() => setTab(value)}
+              className={`-mb-px border-b-2 px-3 py-2 text-xs font-bold transition ${tab === value ? "border-blue-700 text-blue-700" : "border-transparent text-slate-500 hover:text-slate-800"}`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
         {loadError && (
           <p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-xs font-bold text-red-700">{loadError}</p>
         )}
 
+        {tab === "notas" && (
+        <>
         <div className="mt-5 grid gap-3 sm:grid-cols-3">
           {(["enviada", "pendente", "atrasada"] as Status[]).map((status) => (
             <button
@@ -205,6 +245,9 @@ export default function TeamNotesScreen() {
                 <tr key={member.id} className="hover:bg-slate-50">
                   <td className="p-3">
                     <p className="font-bold text-slate-800">{member.name}</p>
+                    {categoryName(member.category_id) && (
+                      <p className="text-[11px] font-semibold text-teal-700">{categoryName(member.category_id)}</p>
+                    )}
                     {member.document && <p className="text-[11px] text-slate-400">{member.document}</p>}
                   </td>
                   <td className="p-3 text-slate-600">{member.service || "—"}</td>
@@ -285,27 +328,19 @@ export default function TeamNotesScreen() {
           )}
           {loading && <p className="py-10 text-center text-sm text-slate-400">Carregando…</p>}
         </div>
-      </div>
+        </>
+        )}
 
-      <div className="rounded-2xl bg-white p-5 shadow-sm">
-        <button
-          type="button"
-          onClick={() => setShowMembers((value) => !value)}
-          className="flex w-full items-center justify-between text-left"
-        >
-          <div>
-            <h2 className="font-extrabold text-[#14213d]">Colaboradores cadastrados</h2>
-            <p className="mt-1 text-xs text-gray-400">{members.length} cadastrado(s) · editar, ativar/inativar ou excluir.</p>
-          </div>
-          <span className="text-xs font-bold text-blue-700">{showMembers ? "Ocultar" : "Mostrar"}</span>
-        </button>
-        {showMembers && (
+        {tab === "colaboradores" && (
           <div className="mt-4 divide-y divide-slate-100">
             {members.map((member) => (
               <div key={member.id} className="flex flex-wrap items-center justify-between gap-3 py-3 text-xs">
                 <div className="min-w-0">
                   <p className="font-bold text-slate-800">
                     {member.name}
+                    {categoryName(member.category_id) && (
+                      <span className="ml-2 rounded-full bg-teal-50 px-2 py-0.5 text-[10px] font-bold text-teal-700">{categoryName(member.category_id)}</span>
+                    )}
                     {!member.active && <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">Inativo</span>}
                   </p>
                   <p className="text-slate-400">
@@ -318,14 +353,28 @@ export default function TeamNotesScreen() {
                 </div>
               </div>
             ))}
-            {!members.length && <p className="py-5 text-center text-sm text-slate-400">Nenhum colaborador cadastrado.</p>}
+            {!members.length && !loading && <p className="py-8 text-center text-sm text-slate-400">Nenhum colaborador cadastrado.</p>}
           </div>
+        )}
+
+        {tab === "categorias" && (
+          <CategoriesPanel
+            categories={categories}
+            ready={categoriesReady}
+            members={members}
+            setCategories={setCategories}
+            categoryRemoved={(id) =>
+              setMembers((old) => old.map((member) => (member.category_id === id ? { ...member, category_id: null } : member)))
+            }
+          />
         )}
       </div>
 
       {memberForm && (
         <MemberForm
           member={memberForm === "new" ? null : memberForm}
+          categories={categories}
+          categoriesReady={categoriesReady}
           close={() => setMemberForm(null)}
           saved={upsertMember}
         />
@@ -393,7 +442,20 @@ function Modal({ title, subtitle, close, children }: { title: string; subtitle?:
 
 const inputClass = "mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal";
 
-function MemberForm({ member, close, saved }: { member: TeamMember | null; close: () => void; saved: (member: TeamMember) => void }) {
+function MemberForm({
+  member,
+  categories,
+  categoriesReady,
+  close,
+  saved,
+}: {
+  member: TeamMember | null;
+  categories: TeamCategory[];
+  categoriesReady: boolean;
+  close: () => void;
+  saved: (member: TeamMember) => void;
+}) {
+  const [categoryId, setCategoryId] = useState(member?.category_id ?? "");
   const [name, setName] = useState(member?.name ?? "");
   const [service, setService] = useState(member?.service ?? "");
   const [document, setDocument] = useState(member?.document ?? "");
@@ -423,6 +485,8 @@ function MemberForm({ member, close, saved }: { member: TeamMember | null; close
         expected_amount: Number.isFinite(expectedValue) ? expectedValue : null,
         due_day: day,
         active,
+        // Só envia a categoria quando a tabela de categorias já existe no banco.
+        ...(categoriesReady ? { category_id: categoryId || null } : {}),
       });
       saved(result);
       close();
@@ -439,6 +503,19 @@ function MemberForm({ member, close, saved }: { member: TeamMember | null; close
           <label className="block text-xs font-bold text-slate-700">Nome
             <input required minLength={2} maxLength={120} value={name} onChange={(e) => setName(e.target.value)} className={inputClass} placeholder="Ex.: Igor Ourciolo" />
           </label>
+          {categoriesReady && (
+            <label className="block text-xs font-bold text-slate-700">Categoria
+              <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={inputClass}>
+                <option value="">Sem categoria</option>
+                {categories.map((category) => (
+                  <option key={category.id} value={category.id}>{category.name}</option>
+                ))}
+              </select>
+              {!categories.length && (
+                <span className="mt-1 block font-normal text-slate-400">Cadastre as categorias na aba “Categorias”.</span>
+              )}
+            </label>
+          )}
           <label className="block text-xs font-bold text-slate-700">Serviço prestado
             <input value={service} onChange={(e) => setService(e.target.value)} className={inputClass} placeholder="Ex.: Consultoria contábil" />
           </label>
@@ -807,5 +884,156 @@ function ConfirmDeleteMember({
         </button>
       </footer>
     </Modal>
+  );
+}
+
+function CategoriesPanel({
+  categories,
+  ready,
+  members,
+  setCategories,
+  categoryRemoved,
+}: {
+  categories: TeamCategory[];
+  ready: boolean;
+  members: TeamMember[];
+  setCategories: (update: (old: TeamCategory[]) => TeamCategory[]) => void;
+  categoryRemoved: (id: string) => void;
+}) {
+  const [name, setName] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const clean = (value: string) => value.trim().replace(/\s+/g, " ");
+  const sorted = (list: TeamCategory[]) => [...list].sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  const countFor = (id: string) => members.filter((member) => member.category_id === id).length;
+  const validate = (value: string, ignoreId?: string) => {
+    const text = clean(value);
+    if (text.length < 2 || text.length > 80) return "Informe um nome entre 2 e 80 caracteres.";
+    if (categories.some((item) => item.id !== ignoreId && item.name.toLocaleLowerCase("pt-BR") === text.toLocaleLowerCase("pt-BR")))
+      return "Já existe uma categoria com esse nome.";
+    return "";
+  };
+  const add = async (event: FormEvent) => {
+    event.preventDefault();
+    const problem = validate(name);
+    if (problem) return setError(problem);
+    setBusy(true);
+    setError("");
+    try {
+      const saved = await saveTeamCategory({ id: newId(), name: clean(name) });
+      setCategories((old) => sorted([...old, saved]));
+      setName("");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Não foi possível cadastrar a categoria.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const rename = async (category: TeamCategory) => {
+    const problem = validate(editName, category.id);
+    if (problem) return setError(problem);
+    setBusy(true);
+    setError("");
+    try {
+      const saved = await saveTeamCategory({ id: category.id, name: clean(editName) });
+      setCategories((old) => sorted(old.map((item) => (item.id === category.id ? saved : item))));
+      setEditingId(null);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Não foi possível renomear a categoria.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const remove = async (category: TeamCategory) => {
+    const count = countFor(category.id);
+    const warning = count ? `\n\n${count} colaborador(es) vão ficar sem categoria (nenhum é apagado).` : "";
+    if (!window.confirm(`Excluir a categoria "${category.name}"?${warning}`)) return;
+    setBusy(true);
+    setError("");
+    try {
+      await deleteTeamCategory(category.id);
+      setCategories((old) => old.filter((item) => item.id !== category.id));
+      categoryRemoved(category.id);
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Não foi possível excluir a categoria.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (!ready)
+    return (
+      <p className="mt-4 rounded-xl bg-amber-50 p-3 text-xs font-bold text-amber-800">
+        As categorias ainda não estão disponíveis no banco de dados. Rode `npx supabase db push` e recarregue a página.
+      </p>
+    );
+  return (
+    <div className="mt-4 space-y-4">
+      <form onSubmit={add} className="flex flex-wrap gap-2">
+        <input
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          placeholder="Ex.: Marketing, Analista de Sistemas, Financeiro, Comercial"
+          maxLength={80}
+          className="w-full max-w-sm rounded-xl border bg-gray-50 px-3 py-2 text-sm"
+        />
+        <button disabled={busy} className="flex items-center gap-1 rounded-xl bg-blue-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">
+          <Plus className="h-4 w-4" /> Cadastrar categoria
+        </button>
+      </form>
+      {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {categories.map((category) => (
+          <article key={category.id} className="flex items-center gap-3 rounded-xl border p-4">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
+              <Tag className="h-4 w-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              {editingId === category.id ? (
+                <input
+                  autoFocus
+                  value={editName}
+                  onChange={(event) => setEditName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") void rename(category);
+                    if (event.key === "Escape") setEditingId(null);
+                  }}
+                  maxLength={80}
+                  className="w-full rounded-lg border bg-gray-50 px-2 py-1 text-sm"
+                />
+              ) : (
+                <p className="truncate font-bold text-slate-800">{category.name}</p>
+              )}
+              <p className="text-[11px] text-slate-400">{countFor(category.id)} colaborador(es)</p>
+            </div>
+            <div className="flex shrink-0 gap-1 text-xs font-bold">
+              {editingId === category.id ? (
+                <>
+                  <button type="button" disabled={busy} onClick={() => void rename(category)} className="rounded px-1.5 py-1 text-blue-700 hover:bg-blue-50">Salvar</button>
+                  <button type="button" onClick={() => setEditingId(null)} className="rounded px-1.5 py-1 text-slate-500 hover:bg-slate-50">Cancelar</button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingId(category.id);
+                      setEditName(category.name);
+                      setError("");
+                    }}
+                    className="rounded px-1.5 py-1 text-blue-700 hover:bg-blue-50"
+                  >
+                    Editar
+                  </button>
+                  <button type="button" disabled={busy} onClick={() => void remove(category)} className="rounded px-1.5 py-1 text-red-600 hover:bg-red-50">Excluir</button>
+                </>
+              )}
+            </div>
+          </article>
+        ))}
+        {!categories.length && <p className="text-sm text-slate-400">Nenhuma categoria cadastrada ainda.</p>}
+      </div>
+    </div>
   );
 }
