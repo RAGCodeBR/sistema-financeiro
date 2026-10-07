@@ -694,11 +694,14 @@ function NewCategory({
   save,
   category,
   allowedUnits,
+  allowIncome = true,
 }: {
   close: () => void;
   save: (c: Category) => Promise<void>;
   category?: Category | null;
   allowedUnits: typeof units;
+  /** Categorias de receita são exclusivas do Master. */
+  allowIncome?: boolean;
 }) {
   const [name, setName] = useState(category?.name ?? ""),
     [kind, setKind] = useState<Kind>(category?.kind ?? "despesa"),
@@ -779,7 +782,7 @@ function NewCategory({
                 onChange={(e) => setKind(e.target.value as Kind)}
                 className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal"
               >
-                <option value="receita">Receita</option>
+                {allowIncome && <option value="receita">Receita</option>}
                 <option value="despesa">Despesa</option>
               </select>
             </label>
@@ -997,12 +1000,15 @@ function ContactsScreen({
   contacts,
   allowedUnits,
   tableReady,
+  allowClients = true,
   save,
   archive,
 }: {
   contacts: Counterparty[];
   allowedUnits: typeof units;
   tableReady: boolean;
+  /** Clientes/pagadores são exclusivos do Master; os demais só fornecedores. */
+  allowClients?: boolean;
   save: (contact: Counterparty) => Promise<void>;
   archive: (contact: Counterparty, archived: boolean) => Promise<void>;
 }) {
@@ -1097,10 +1103,12 @@ function ContactsScreen({
   return (
     <section className="space-y-5">
       <div>
-        <h2 className="text-xl font-extrabold text-[#14213d]">Cadastro de fornecedores e clientes</h2>
+        <h2 className="text-xl font-extrabold text-[#14213d]">
+          {allowClients ? "Cadastro de fornecedores e clientes" : "Cadastro de fornecedores"}
+        </h2>
       </div>
       <div className="flex flex-wrap gap-2" role="tablist" aria-label="Tipo de cadastro">
-        {(["despesa", "receita"] as Kind[]).map((tabKind) => (
+        {(allowClients ? (["despesa", "receita"] as Kind[]) : (["despesa"] as Kind[])).map((tabKind) => (
           <button key={tabKind} type="button" role="tab" aria-selected={kind === tabKind} onClick={() => selectKind(tabKind)} className={`rounded-xl px-4 py-2 text-sm font-bold ${kind === tabKind ? "bg-blue-700 text-white" : "border bg-white text-slate-600"}`}>
             {tabKind === "despesa" ? "Fornecedores" : "Clientes / pagadores"}
           </button>
@@ -1242,6 +1250,7 @@ function EntryForm({
   contactsTableReady,
   allowedUnits,
   banks,
+  allowIncome = true,
   editing,
   scope: initialScope,
   close,
@@ -1253,6 +1262,8 @@ function EntryForm({
   contactsTableReady: boolean;
   allowedUnits: typeof units;
   banks: Bank[];
+  /** Só o Master pode lançar receitas; os demais só despesas. */
+  allowIncome?: boolean;
   editing: Entry | null;
   scope?: "one" | "series";
   close: () => void;
@@ -1262,7 +1273,7 @@ function EntryForm({
     sameMonthParts?: SameMonthPart[],
   ) => Promise<void>;
 }) {
-  const [kind, setKind] = useState<Kind>(editing?.kind ?? initial),
+  const [kind, setKind] = useState<Kind>(editing?.kind ?? (allowIncome ? initial : "despesa")),
     [unit, setUnit] = useState<Unit>(editing?.unit ?? allowedUnits[0]?.name ?? "Consultoria"),
     [category, setCategory] = useState(editing?.category ?? ""),
     [description, setDescription] = useState(editing?.description ?? ""),
@@ -1560,6 +1571,7 @@ function EntryForm({
           </button>
         </header>
         <div className="space-y-5 p-6">
+          {allowIncome && (
           <div className="grid grid-cols-2 overflow-hidden rounded-xl border text-sm font-bold">
             <button
               type="button"
@@ -1584,6 +1596,7 @@ function EntryForm({
               Receita
             </button>
           </div>
+          )}
           <div className="max-w-sm">
             <label className="text-xs font-bold">
               Centro de custo
@@ -2917,12 +2930,15 @@ function Reports({
   allowedUnits,
   categories,
   contacts,
+  incomeVisible = true,
 }: {
   entries: Entry[];
   accounts: Account[];
   allowedUnits: typeof units;
   categories: Category[];
   contacts: Counterparty[];
+  /** Receitas, resultado e saldos só aparecem para o Master. */
+  incomeVisible?: boolean;
 }) {
   const today = new Date();
   const currentMonthStart = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`;
@@ -2932,7 +2948,7 @@ function Reports({
   const [unit, setUnit] = useState<Unit | "Todos">("Todos");
   const [account, setAccount] = useState("Todos");
   const [category, setCategory] = useState("Todos");
-  const [kind, setKind] = useState<Kind | "todos">("todos");
+  const [kind, setKind] = useState<Kind | "todos">(incomeVisible ? "todos" : "despesa");
   const [counterparty, setCounterparty] = useState("Todos");
   const [drill, setDrill] = useState<{ title: string; items: Entry[] } | null>(null);
   const openDrill = (title: string, items: Entry[]) => {
@@ -3163,6 +3179,7 @@ function Reports({
                 ))}
             </select>
           </label>
+          {incomeVisible && (
           <label className="text-xs font-bold">
             Tipo
             <select
@@ -3178,8 +3195,9 @@ function Reports({
               <option value="despesa">Despesas</option>
             </select>
           </label>
+          )}
           <label className="text-xs font-bold">
-            Fornecedor / cliente
+            {incomeVisible ? "Fornecedor / cliente" : "Fornecedor"}
             <select
               value={counterparty}
               onChange={(event) => setCounterparty(event.target.value)}
@@ -3210,7 +3228,9 @@ function Reports({
           ["A receber", pendingReceive, "text-blue-700", pick((e) => e.kind === "receita" && e.status === "previsto")],
           ["Pagar vencido", overduePay, "text-red-600", pick((e) => e.kind === "despesa" && e.status === "previsto" && e.date < todayKey)],
           ["Receber vencido", overdueReceive, "text-orange-600", pick((e) => e.kind === "receita" && e.status === "previsto" && e.date < todayKey)],
-        ] as [string, number, string, Entry[]][]).map(([label, value, color, items]) => (
+        ] as [string, number, string, Entry[]][])
+          .filter(([label]) => incomeVisible || !["Receitas no período", "Resultado projetado", "Resultado realizado", "A receber", "Receber vencido"].includes(label))
+          .map(([label, value, color, items]) => (
           <button
             key={label}
             type="button"
@@ -3247,8 +3267,8 @@ function Reports({
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={(value: number) => new Intl.NumberFormat("pt-BR", { notation: "compact" }).format(value)} />
                   <Tooltip formatter={(value, name) => [fmt(Number(value)), String(name)]} contentStyle={{ borderRadius: 12, borderColor: "#e2e8f0" }} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Bar dataKey="Receitas recebidas" stackId="receita" fill="#059669" radius={[0, 0, 0, 0]} cursor="pointer" onClick={(data: any) => { const b = data?.payload ?? data; openDrill(`Receitas recebidas · ${b.label}`, pick((e) => e.kind === "receita" && e.status === "realizado" && e.date >= b.start && e.date <= b.end)); }} />
-                  <Bar dataKey="Receitas previstas" stackId="receita" fill="#6ee7b7" radius={[3, 3, 0, 0]} cursor="pointer" onClick={(data: any) => { const b = data?.payload ?? data; openDrill(`Receitas previstas · ${b.label}`, pick((e) => e.kind === "receita" && e.status === "previsto" && e.date >= b.start && e.date <= b.end)); }} />
+                  {incomeVisible && <Bar dataKey="Receitas recebidas" stackId="receita" fill="#059669" radius={[0, 0, 0, 0]} cursor="pointer" onClick={(data: any) => { const b = data?.payload ?? data; openDrill(`Receitas recebidas · ${b.label}`, pick((e) => e.kind === "receita" && e.status === "realizado" && e.date >= b.start && e.date <= b.end)); }} />}
+                  {incomeVisible && <Bar dataKey="Receitas previstas" stackId="receita" fill="#6ee7b7" radius={[3, 3, 0, 0]} cursor="pointer" onClick={(data: any) => { const b = data?.payload ?? data; openDrill(`Receitas previstas · ${b.label}`, pick((e) => e.kind === "receita" && e.status === "previsto" && e.date >= b.start && e.date <= b.end)); }} />}
                   <Bar dataKey="Despesas pagas" stackId="despesa" fill="#dc2626" radius={[0, 0, 0, 0]} cursor="pointer" onClick={(data: any) => { const b = data?.payload ?? data; openDrill(`Despesas pagas · ${b.label}`, pick((e) => e.kind === "despesa" && e.status === "realizado" && e.date >= b.start && e.date <= b.end)); }} />
                   <Bar dataKey="Despesas previstas" stackId="despesa" fill="#fca5a5" radius={[3, 3, 0, 0]} cursor="pointer" onClick={(data: any) => { const b = data?.payload ?? data; openDrill(`Despesas previstas · ${b.label}`, pick((e) => e.kind === "despesa" && e.status === "previsto" && e.date >= b.start && e.date <= b.end)); }} />
                 </BarChart>
@@ -3260,7 +3280,7 @@ function Reports({
       <div className="grid gap-5 xl:grid-cols-2">
         {([
           ["Despesas por categoria", expenseDetails, expense],
-          ["Receitas por categoria", incomeDetails, income],
+          ...(incomeVisible ? ([["Receitas por categoria", incomeDetails, income]] as const) : []),
         ] as const).map(([title, rows, totalValue]) => (
           <section key={title} className="rounded-2xl bg-white p-5 shadow-sm">
             <h2 className="font-extrabold text-[#14213d]">{title}</h2>
@@ -3423,6 +3443,7 @@ function Reports({
           </div>
         </section>
       )}
+      {incomeVisible && (
       <section className="rounded-2xl bg-white p-5 shadow-sm">
         <h2 className="font-extrabold text-[#14213d]">
           Movimento realizado por conta no período
@@ -3446,6 +3467,7 @@ function Reports({
           ))}
         </div>
       </section>
+      )}
       {drill && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" role="presentation" onClick={() => setDrill(null)}>
           <section
@@ -4049,6 +4071,9 @@ function App() {
         </div>
       </main>
     );
+  // Receitas, clientes/pagadores, saldos e resultado são exclusivos do Master
+  // (o banco também bloqueia; aqui só deixamos a tela coerente).
+  const isMaster = currentUser.role === "master";
   const allowedUnits =
     currentUser.role === "master"
       ? centers
@@ -4419,6 +4444,56 @@ function App() {
       },
       { receita: 0, despesa: 0 },
     ),
+    // Detalhe dos totais da lista: realizado (pago/recebido) x previsto.
+    listDetail = list.reduce(
+      (detail, entry) => {
+        detail[entry.kind][entry.status] += entryValue(entry);
+        return detail;
+      },
+      {
+        receita: { realizado: 0, previsto: 0 },
+        despesa: { realizado: 0, previsto: 0 },
+      },
+    ),
+    // Quais quadros fazem sentido para o filtro de tipo escolhido.
+    showIncomeTotals =
+      isMaster &&
+      entryFilter !== "pagar" &&
+      entryFilter !== "pagas" &&
+      !(entryFilter === "atrasadas" && overdueKind === "despesa"),
+    showExpenseTotals =
+      entryFilter !== "receber" &&
+      entryFilter !== "recebidas" &&
+      !(entryFilter === "atrasadas" && overdueKind === "receita"),
+    // Frase que explica exatamente o que está sendo somado.
+    totalsDescription = [
+      {
+        todos: "Todos os tipos",
+        pagar: "Contas a pagar",
+        receber: "Contas a receber",
+        pagas: "Despesas pagas",
+        recebidas: "Receitas recebidas",
+        atrasadas:
+          overdueKind === "despesa"
+            ? "Contas a pagar atrasadas"
+            : overdueKind === "receita"
+              ? "Contas a receber atrasadas"
+              : "Atrasadas",
+      }[entryFilter],
+      searchText
+        ? `busca “${search.trim()}” em todos os meses`
+        : entryFilter === "atrasadas"
+          ? "vencidas de todos os meses"
+          : periodMode === "mes"
+            ? labelMonth(month)
+            : `${period.label}: ${new Date(`${period.start}T12:00:00`).toLocaleDateString("pt-BR")} a ${new Date(`${period.end}T12:00:00`).toLocaleDateString("pt-BR")}`,
+      filter === "Todos" ? "todos os centros" : `centro ${filter}`,
+      counterpartyFilter === "todos"
+        ? null
+        : counterparties.find((person) => person.key === counterpartyFilter)?.name,
+    ]
+      .filter(Boolean)
+      .join(" · "),
     byUnit = allowedUnits.map((u) => ({
       ...u,
       categories: categories.filter((c) => c.unit === u.name),
@@ -4531,12 +4606,14 @@ function App() {
                 >
                   − Despesa
                 </button>
-                <button
-                  onClick={() => open("receita")}
-                  className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-extrabold text-white hover:bg-emerald-700"
-                >
-                  + Receita
-                </button>
+                {isMaster && (
+                  <button
+                    onClick={() => open("receita")}
+                    className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-extrabold text-white hover:bg-emerald-700"
+                  >
+                    + Receita
+                  </button>
+                )}
               </div>
             )}
             <div className="relative">
@@ -4661,7 +4738,9 @@ function App() {
                   { title: "Despesas pagas", value: totals.expense, Icon: TrendingDown, style: "text-red-600 bg-red-50", filter: "pagas", today: false },
                   { title: "A pagar", value: totals.pay, Icon: CreditCard, style: "text-orange-600 bg-orange-50", filter: "pagar", today: false },
                   { title: "A receber", value: totals.receive, Icon: Wallet, style: "text-blue-600 bg-blue-50", filter: "receber", today: false },
-                ] as const).map(({ title, value, Icon: CardIcon, style, filter: targetFilter, today: isToday }) => {
+                ] as const)
+                  .filter((card) => isMaster || (card.filter !== "recebidas" && card.filter !== "receber"))
+                  .map(({ title, value, Icon: CardIcon, style, filter: targetFilter, today: isToday }) => {
                   return (
                     <button
                       key={title}
@@ -4734,6 +4813,7 @@ function App() {
                       {overduePay.length} {overduePay.length === 1 ? "lançamento vencido" : "lançamentos vencidos"} · Ver lançamentos
                     </span>
                   </button>
+                  {isMaster && (
                   <button
                     type="button"
                     onClick={() => openOverdue("receita")}
@@ -4749,8 +4829,10 @@ function App() {
                       {overdueReceive.length} {overdueReceive.length === 1 ? "lançamento vencido" : "lançamentos vencidos"} · Ver lançamentos
                     </span>
                   </button>
+                  )}
                 </div>
               </section>
+              {isMaster && (
               <section className="mt-5 rounded-2xl bg-white p-5 shadow-sm">
                 <div className="mb-4 flex items-center justify-between">
                   <div>
@@ -4799,6 +4881,7 @@ function App() {
                     ))}
                 </div>
               </section>
+              )}
               <section className="mt-5 grid gap-4 lg:grid-cols-4">
                 {allowedUnits.map((u) => {
                   const d = current.filter((x) => x.unit === u.name),
@@ -4833,12 +4916,14 @@ function App() {
                         </div>
                       </div>
                       <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
-                        <p>
-                          Receitas recebidas
-                          <b className="block text-emerald-600">
-                            {fmt(income)}
-                          </b>
-                        </p>
+                        {isMaster && (
+                          <p>
+                            Receitas recebidas
+                            <b className="block text-emerald-600">
+                              {fmt(income)}
+                            </b>
+                          </p>
+                        )}
                         <p>
                           Despesas pagas
                           <b className="block text-red-600">{fmt(expense)}</b>
@@ -4857,6 +4942,7 @@ function App() {
                             )}
                           </b>
                         </p>
+                        {isMaster && (
                         <p>
                           A receber
                           <b className="block text-blue-600">
@@ -4871,17 +4957,20 @@ function App() {
                             )}
                           </b>
                         </p>
+                        )}
                       </div>
                     </article>
                   );
                 })}
               </section>
               <section className="mt-5 grid gap-4 lg:grid-cols-2">
-                <Breakdown
-                  kind="receita"
-                  entries={current}
-                  categories={categories}
-                />
+                {isMaster && (
+                  <Breakdown
+                    kind="receita"
+                    entries={current}
+                    categories={categories}
+                  />
+                )}
                 <Breakdown
                   kind="despesa"
                   entries={current}
@@ -4890,7 +4979,7 @@ function App() {
               </section>
               <div className="mt-5 grid gap-4 lg:grid-cols-2">
                 <CounterpartyOverview kind="despesa" entries={current} contacts={contacts.filter((contact) => allowedUnits.some((allowed) => allowed.name === contact.unit))} todayKey={today} />
-                <CounterpartyOverview kind="receita" entries={current} contacts={contacts.filter((contact) => allowedUnits.some((allowed) => allowed.name === contact.unit))} todayKey={today} />
+                {isMaster && <CounterpartyOverview kind="receita" entries={current} contacts={contacts.filter((contact) => allowedUnits.some((allowed) => allowed.name === contact.unit))} todayKey={today} />}
               </div>
               <section className="mt-5 rounded-2xl bg-white p-5 shadow-sm">
                 <h2 className="font-extrabold text-[#14213d]">
@@ -4925,6 +5014,7 @@ function App() {
             </>
           ) : screen === "contas" ? (
             <>
+            {isMaster && (
             <section className="rounded-2xl bg-white p-5 shadow-sm">
               <div className="mb-5 flex items-center justify-between">
                 <div>
@@ -4982,6 +5072,7 @@ function App() {
                   ))}
               </div>
             </section>
+            )}
             <BanksSection
               banks={banks}
               ready={banksReady}
@@ -4998,6 +5089,7 @@ function App() {
               contacts={contacts}
               allowedUnits={allowedUnits}
               tableReady={contactsTableReady}
+              allowClients={isMaster}
               save={async (contact) => {
                 if (!allowedUnits.some((unit) => unit.name === contact.unit))
                   throw new Error("Este centro de custo não está disponível para seu acesso.");
@@ -5035,6 +5127,7 @@ function App() {
               allowedUnits={allowedUnits}
               categories={categories}
               contacts={contacts.filter((contact) => allowedUnits.some((allowed) => allowed.name === contact.unit))}
+              incomeVisible={isMaster}
             />
           ) : screen === "usuarios" ? (
             <UsersAdmin
@@ -5118,7 +5211,7 @@ function App() {
                         </div>
                       )}
                     </div>
-                    {(["receita", "despesa"] as Kind[]).map((k) => (
+                    {((isMaster ? ["receita", "despesa"] : ["despesa"]) as Kind[]).map((k) => (
                       <div key={k} className="mb-3">
                         <p
                           className={`mb-2 text-[11px] font-extrabold uppercase ${k === "receita" ? "text-emerald-700" : "text-red-700"}`}
@@ -5197,13 +5290,15 @@ function App() {
                     <Plus className="h-4 w-4" />
                     Nova despesa
                   </button>
-                  <button
-                    onClick={() => open("receita")}
-                    className="flex items-center gap-1 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700"
-                  >
-                    <Plus className="h-4 w-4" />
-                    Nova receita
-                  </button>
+                  {isMaster && (
+                    <button
+                      onClick={() => open("receita")}
+                      className="flex items-center gap-1 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Nova receita
+                    </button>
+                  )}
                 </div>
               </div>
               <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
@@ -5238,9 +5333,9 @@ function App() {
                     {[
                       ["todos", "Todos"],
                       ["pagar", "Contas a pagar"],
-                      ["receber", "Contas a receber"],
+                      ...(isMaster ? [["receber", "Contas a receber"]] : []),
                       ["pagas", "Despesas pagas"],
-                      ["recebidas", "Receitas recebidas"],
+                      ...(isMaster ? [["recebidas", "Receitas recebidas"]] : []),
                       ["atrasadas", "Atrasadas"],
                     ].map(([value, label]) => (
                       <button
@@ -5300,7 +5395,7 @@ function App() {
                       {[
                         ["todos", "Todas"],
                         ["despesa", "A pagar"],
-                        ["receita", "A receber"],
+                        ...(isMaster ? [["receita", "A receber"]] : []),
                       ].map(([value, label]) => (
                         <button
                           key={value}
@@ -5367,23 +5462,51 @@ function App() {
                   </span>
                 )}
               </div>
-              <div className="mb-5 grid gap-3 rounded-xl border border-blue-100 bg-blue-50/50 p-4 sm:grid-cols-3">
-                <div>
-                  <p className="text-xs font-bold text-gray-500">Receitas exibidas</p>
-                  <p className="text-lg font-extrabold text-emerald-700">{fmt(listTotals.receita)}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-bold text-gray-500">Despesas exibidas</p>
-                  <p className="text-lg font-extrabold text-red-600">{fmt(listTotals.despesa)}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-bold text-gray-500">Total dos lançamentos exibidos</p>
-                  <p className="text-lg font-extrabold text-[#14213d]">
-                    {fmt(listTotals.receita + listTotals.despesa)}
-                  </p>
-                  <p className="text-[11px] text-gray-500">
-                    {list.length} {list.length === 1 ? "lançamento" : "lançamentos"} · previstos e realizados
-                  </p>
+              <div className="mb-5 rounded-xl border border-blue-100 bg-blue-50/50 p-4">
+                <p className="text-[11px] font-semibold text-slate-500">
+                  Totais dos <b className="text-slate-700">{list.length} {list.length === 1 ? "lançamento" : "lançamentos"}</b> da lista abaixo · {totalsDescription}
+                </p>
+                <div
+                  className={`mt-3 grid gap-3 ${
+                    showIncomeTotals && showExpenseTotals ? "sm:grid-cols-3" : ""
+                  }`}
+                >
+                  {showIncomeTotals && (
+                    <div className="rounded-lg bg-white p-3">
+                      <p className="text-xs font-bold text-gray-500">Receitas</p>
+                      <p className="text-lg font-extrabold text-emerald-700">{fmt(listTotals.receita)}</p>
+                      <p className="text-[11px] text-gray-500">
+                        Recebido <b className="text-emerald-700">{fmt(listDetail.receita.realizado)}</b> · A receber{" "}
+                        <b className="text-blue-700">{fmt(listDetail.receita.previsto)}</b>
+                      </p>
+                    </div>
+                  )}
+                  {showExpenseTotals && (
+                    <div className="rounded-lg bg-white p-3">
+                      <p className="text-xs font-bold text-gray-500">Despesas</p>
+                      <p className="text-lg font-extrabold text-red-600">{fmt(listTotals.despesa)}</p>
+                      <p className="text-[11px] text-gray-500">
+                        Pago <b className="text-red-600">{fmt(listDetail.despesa.realizado)}</b> · A pagar{" "}
+                        <b className="text-orange-600">{fmt(listDetail.despesa.previsto)}</b>
+                      </p>
+                    </div>
+                  )}
+                  {showIncomeTotals && showExpenseTotals && (
+                    <div className="rounded-lg bg-white p-3">
+                      <p className="text-xs font-bold text-gray-500">Saldo (receitas − despesas)</p>
+                      <p
+                        className={`text-lg font-extrabold ${
+                          listTotals.receita - listTotals.despesa >= 0 ? "text-blue-700" : "text-red-600"
+                        }`}
+                      >
+                        {fmt(listTotals.receita - listTotals.despesa)}
+                      </p>
+                      <p className="text-[11px] text-gray-500">
+                        Realizado <b>{fmt(listDetail.receita.realizado - listDetail.despesa.realizado)}</b> · Previsto{" "}
+                        <b>{fmt(listDetail.receita.previsto - listDetail.despesa.previsto)}</b>
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
               <Entries
@@ -5437,6 +5560,7 @@ function App() {
           contactsTableReady={contactsTableReady}
           allowedUnits={allowedUnits}
           banks={banks}
+          allowIncome={isMaster}
           editing={editing}
           scope={editScope}
           close={() => {
@@ -5476,6 +5600,7 @@ function App() {
         <NewCategory
           close={() => setCategoryModal(false)}
           allowedUnits={allowedUnits}
+          allowIncome={isMaster}
           save={async (c) => {
             await saveRemoteCategory(c);
             setCategories((x) => [...x, c]);
@@ -5486,6 +5611,7 @@ function App() {
         <NewCategory
           category={editingCategory}
           allowedUnits={allowedUnits}
+          allowIncome={isMaster}
           close={() => setEditingCategory(null)}
           save={async (c) => {
             await saveRemoteCategory(c);
