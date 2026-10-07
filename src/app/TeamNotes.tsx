@@ -157,6 +157,12 @@ export default function TeamNotesScreen() {
     atrasada: rows.filter((row) => row.status === "atrasada").length,
   };
   const visibleRows = rows.filter((row) => statusFilter === "todos" || row.status === statusFilter);
+  // Total em notas emitidas: soma o valor das notas registradas no mês (vai
+  // crescendo conforme as notas são lançadas). O rodapé respeita o filtro.
+  const monthNotes = rows.filter((row) => row.invoice);
+  const monthTotal = monthNotes.reduce((sum, row) => sum + (row.invoice?.amount ?? 0), 0);
+  const visibleNoteCount = visibleRows.filter((row) => row.invoice).length;
+  const visibleTotal = visibleRows.reduce((sum, row) => sum + (row.invoice?.amount ?? 0), 0);
 
   const upsertMember = (saved: TeamMember) =>
     setMembers((old) => {
@@ -267,7 +273,7 @@ export default function TeamNotesScreen() {
 
         {tab === "notas" && (
         <>
-        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {(["enviada", "pendente", "atrasada"] as Status[]).map((status) => (
             <button
               key={status}
@@ -284,6 +290,13 @@ export default function TeamNotesScreen() {
               </p>
             </button>
           ))}
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
+            <p className="text-xs font-bold text-gray-500">Total em notas emitidas</p>
+            <p className="mt-1 text-2xl font-extrabold text-emerald-700">{fmt(monthTotal)}</p>
+            <p className="mt-1 text-[11px] font-semibold text-slate-500">
+              {monthNotes.length} nota(s) em {competenceLabel(key)}
+            </p>
+          </div>
         </div>
 
         <div className="mt-5 overflow-x-auto">
@@ -294,6 +307,7 @@ export default function TeamNotesScreen() {
                 <th className="p-3">Serviço</th>
                 <th className="p-3">Dia limite</th>
                 <th className="p-3">Status</th>
+                <th className="p-3">Data de emissão</th>
                 <th className="p-3 text-right">Valor</th>
                 <th className="p-3 text-right">Ações</th>
               </tr>
@@ -320,6 +334,13 @@ export default function TeamNotesScreen() {
                     )}
                     {invoice && invoice.competence !== invoice.reference_month && (
                       <p className="mt-1 text-[10px] font-semibold text-slate-500">Competência: {competenceLabel(invoice.competence)}</p>
+                    )}
+                  </td>
+                  <td className="p-3">
+                    {invoice?.issue_date ? (
+                      <b className="text-slate-800">{dateBR(invoice.issue_date)}</b>
+                    ) : (
+                      <span className="text-slate-300">—</span>
                     )}
                   </td>
                   <td className="p-3 text-right">
@@ -384,6 +405,17 @@ export default function TeamNotesScreen() {
                 </tr>
               ))}
             </tbody>
+            {visibleNoteCount > 0 && (
+              <tfoot className="border-t-2 bg-slate-50">
+                <tr>
+                  <td colSpan={5} className="p-3 text-right text-xs font-bold text-slate-600">
+                    Total em notas emitidas{statusFilter !== "todos" ? " (filtro aplicado)" : ""} · {visibleNoteCount} nota(s)
+                  </td>
+                  <td className="p-3 text-right text-sm font-extrabold text-emerald-700">{fmt(visibleTotal)}</td>
+                  <td />
+                </tr>
+              </tfoot>
+            )}
           </table>
           {!loading && !visibleRows.length && (
             <p className="py-10 text-center text-sm text-slate-400">
