@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { isNetworkFailure, networkUploadMessage } from "./files";
 
 const uuid = (value: unknown) => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
@@ -80,12 +81,32 @@ function entryRow(entry: any) {
 
 const attachmentsBucket = "attachments";
 
+/**
+ * Envia um arquivo ao Storage. Uma falha de rede ("Failed to fetch") é tentada
+ * mais uma vez e, se persistir, vira uma mensagem clara em português.
+ */
+async function uploadFile(bucket: string, path: string, file: File) {
+  for (let attempt = 1; ; attempt += 1) {
+    let message: string | undefined;
+    try {
+      const { error } = await supabase.storage
+        .from(bucket)
+        .upload(path, file, { upsert: true, contentType: file.type || undefined });
+      if (!error) return path;
+      message = error.message;
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    if (isNetworkFailure(message) && attempt < 2) {
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      continue;
+    }
+    throw new Error(isNetworkFailure(message) ? networkUploadMessage : message || "Não foi possível enviar o arquivo.");
+  }
+}
+
 export async function uploadEntryAttachment(path: string, file: File) {
-  const { error } = await supabase.storage
-    .from(attachmentsBucket)
-    .upload(path, file, { upsert: true, contentType: file.type || undefined });
-  if (error) throw new Error(error.message || "Não foi possível enviar o arquivo.");
-  return path;
+  return uploadFile(attachmentsBucket, path, file);
 }
 
 export async function signedAttachmentUrl(path: string) {
@@ -260,11 +281,7 @@ export async function deleteTeamCategory(id: string) {
 const teamNotesBucket = "team-notes";
 
 export async function uploadTeamNoteFile(path: string, file: File) {
-  const { error } = await supabase.storage
-    .from(teamNotesBucket)
-    .upload(path, file, { upsert: true, contentType: file.type || undefined });
-  if (error) throw new Error(error.message || "Não foi possível enviar o arquivo.");
-  return path;
+  return uploadFile(teamNotesBucket, path, file);
 }
 
 export async function teamNoteFileUrl(path: string, downloadName?: string) {

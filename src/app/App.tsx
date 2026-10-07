@@ -27,6 +27,7 @@ import { addMonthsClamped, changedSeriesFields, seriesDueDate } from "../lib/ser
 import { CurrencyInput, Month, fmt, labelMonth, moneyInput, parseMoney } from "./shared";
 import TeamNotesScreen from "./TeamNotes";
 import BanksSection from "./Banks";
+import { snapshotFile, unreadableFileMessage } from "../lib/files";
 import {
   AlertTriangle,
   Bell,
@@ -1349,7 +1350,7 @@ function EntryForm({
   // Com o campo oculto na edição, mantém os valores que o lançamento já tinha.
   const finalJuros = showPaidValue ? computedJuros : editing?.juros ?? 0;
   const finalDiscount = showPaidValue ? computedDiscount : editing?.discount ?? 0;
-  const addFiles = (picked: File[]) => {
+  const addFiles = async (picked: File[]) => {
     if (!picked.length) return;
     const invalid = picked.find(
       (file) =>
@@ -1365,7 +1366,17 @@ function EntryForm({
       setSaveError(`O arquivo "${tooBig.name}" passa de 10 MB. Reduza o tamanho e tente novamente.`);
       return;
     }
-    setNewFiles((old) => [...old, ...picked]);
+    // Lê o arquivo agora: o envio usa essa cópia e não depende do original.
+    const copies: File[] = [];
+    for (const file of picked) {
+      try {
+        copies.push(await snapshotFile(file));
+      } catch {
+        setSaveError(unreadableFileMessage(file.name));
+        return;
+      }
+    }
+    setNewFiles((old) => [...old, ...copies]);
     setSaveError("");
   };
   const available = categories.filter(
@@ -1528,7 +1539,7 @@ function EntryForm({
       onDrop={(event) => {
         event.preventDefault();
         setDragging(false);
-        addFiles(Array.from(event.dataTransfer.files));
+        void addFiles(Array.from(event.dataTransfer.files));
       }}
     >
       <form
@@ -1775,7 +1786,7 @@ function EntryForm({
                   event.preventDefault();
                   event.stopPropagation();
                   setDragging(false);
-                  addFiles(Array.from(event.dataTransfer.files));
+                  void addFiles(Array.from(event.dataTransfer.files));
                 }}
                 className={`flex cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed p-5 text-xs font-bold transition ${dragging ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-300 bg-white text-slate-600 hover:border-blue-300 hover:text-blue-700"}`}
               >
@@ -1788,7 +1799,7 @@ function EntryForm({
                   multiple
                   className="hidden"
                   onChange={(event) => {
-                    addFiles(Array.from(event.target.files ?? []));
+                    void addFiles(Array.from(event.target.files ?? []));
                     event.target.value = "";
                   }}
                 />

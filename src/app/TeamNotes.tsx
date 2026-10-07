@@ -26,6 +26,7 @@ import {
   uploadTeamNoteFile,
 } from "../lib/bridge";
 import { CurrencyInput, Month, fmt, labelMonth, parseMoney } from "./shared";
+import { snapshotFile, unreadableFileMessage } from "../lib/files";
 
 type Status = "enviada" | "pendente" | "atrasada";
 
@@ -656,7 +657,7 @@ function InvoiceForm({
   const [removedFiles, setRemovedFiles] = useState<string[]>([]);
   const [newFiles, setNewFiles] = useState<File[]>([]);
   const [dragging, setDragging] = useState(false);
-  const addFiles = (picked: File[]) => {
+  const addFiles = async (picked: File[]) => {
     if (!picked.length) return;
     const invalid = picked.find(
       (file) =>
@@ -672,7 +673,17 @@ function InvoiceForm({
       setError(`O arquivo "${tooBig.name}" passa de 10 MB.`);
       return;
     }
-    setNewFiles((old) => [...old, ...picked]);
+    // Lê o arquivo agora: o envio usa essa cópia e não depende do original.
+    const copies: File[] = [];
+    for (const file of picked) {
+      try {
+        copies.push(await snapshotFile(file));
+      } catch {
+        setError(unreadableFileMessage(file.name));
+        return;
+      }
+    }
+    setNewFiles((old) => [...old, ...copies]);
     setError("");
   };
   // Soltar o arquivo em qualquer lugar da tela (com o formulário aberto) anexa,
@@ -685,7 +696,7 @@ function InvoiceForm({
       if (event.defaultPrevented) return; // já tratado pela área de anexo
       event.preventDefault();
       setDragging(false);
-      addFilesRef.current(Array.from(event.dataTransfer?.files ?? []));
+      void addFilesRef.current(Array.from(event.dataTransfer?.files ?? []));
     };
     window.addEventListener("dragover", over);
     window.addEventListener("drop", drop);
@@ -872,7 +883,7 @@ function InvoiceForm({
                 onDrop={(event) => {
                   event.preventDefault();
                   setDragging(false);
-                  addFiles(Array.from(event.dataTransfer.files));
+                  void addFiles(Array.from(event.dataTransfer.files));
                 }}
                 className={`flex cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed p-5 transition ${dragging ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-300 bg-white text-slate-600 hover:border-blue-300 hover:text-blue-700"}`}
               >
@@ -885,7 +896,7 @@ function InvoiceForm({
                   multiple
                   className="hidden"
                   onChange={(event) => {
-                    addFiles(Array.from(event.target.files ?? []));
+                    void addFiles(Array.from(event.target.files ?? []));
                     event.target.value = "";
                   }}
                 />
