@@ -37,6 +37,19 @@ const competenceLabel = (key: string) => {
   const [y, m] = key.split("-").map(Number);
   return labelMonth(new Date(y, m - 1, 1));
 };
+// O controle de notas começa em março/2026; meses anteriores não importam.
+const TEAM_NOTES_START = "2026-03";
+const shortMonth = (key: string) => {
+  const [y, m] = key.split("-").map(Number);
+  return new Date(y, m - 1, 1)
+    .toLocaleDateString("pt-BR", { month: "short", year: "numeric" })
+    .replace(".", "");
+};
+// Inativo naquele mês: a partir do mês de inativação (ou, nos cadastros
+// antigos sem mês, quando marcado como inativo).
+const isInactiveIn = (member: TeamMember, month: string) =>
+  member.inactive_from ? month >= member.inactive_from : !member.active;
+const withoutCreatedAt = ({ created_at: _createdAt, ...member }: TeamMember) => member;
 const fileLabel = (path: string) => (path.split("/").pop() || path).replace(/^\d+-/, "");
 const isPdf = (path: string) => path.toLowerCase().endsWith(".pdf");
 const asciiName = (name: string) =>
@@ -63,8 +76,10 @@ export default function TeamNotesScreen() {
   const [loadError, setLoadError] = useState("");
   const [month, setMonth] = useState(() => {
     const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth(), 1);
+    const current = new Date(now.getFullYear(), now.getMonth(), 1);
+    return monthKey(current) < TEAM_NOTES_START ? new Date(2026, 2, 1) : current;
   });
+  const [inactivating, setInactivating] = useState<TeamMember | null>(null);
   const [statusFilter, setStatusFilter] = useState<Status | "todos">("todos");
   const [memberForm, setMemberForm] = useState<TeamMember | "new" | null>(null);
   const [invoiceForm, setInvoiceForm] = useState<{ member: TeamMember; invoice: TeamInvoice | null } | null>(null);
@@ -127,7 +142,11 @@ export default function TeamNotesScreen() {
   // data de cadastro no sistema não limita mais em quais meses a pessoa aparece.
   const rows = useMemo(
     () =>
-      members.map((member) => ({ member, status: statusOf(member), invoice: invoiceFor(member.id, key) })),
+      members
+        // Inativos deixam de aparecer a partir do mês de inativação, mas uma
+        // nota já registrada naquele mês continua visível.
+        .filter((member) => key >= TEAM_NOTES_START && (!isInactiveIn(member, key) || Boolean(invoiceFor(member.id, key))))
+        .map((member) => ({ member, status: statusOf(member), invoice: invoiceFor(member.id, key) })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [members, invoices, key, todayStr],
   );
@@ -145,6 +164,40 @@ export default function TeamNotesScreen() {
       const next = exists ? old.map((item) => (item.id === saved.id ? normalized : item)) : [...old, normalized];
       return next.sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
     });
+  const reactivate = async (member: TeamMember) => {
+    if (!window.confirm(`Reativar ${member.name}? Ele volta a ser cobrado todo mês.`)) return;
+    try {
+      upsertMember(await saveTeamMember({ ...withoutCreatedAt(member), inactive_from: null, active: true }));
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Não foi possível reativar o colaborador.");
+    }
+  };
+  const inactiveButton = (member: TeamMember) =>
+    member.inactive_from || !member.active ? (
+      <button
+        type="button"
+        onClick={() => void reactivate(member)}
+        className="flex items-center gap-1 rounded-lg border border-emerald-200 px-2 py-1.5 font-bold text-emerald-700 hover:bg-emerald-50"
+      >
+        Reativar
+      </button>
+    ) : (
+      <button
+        type="button"
+        onClick={() => setInactivating(member)}
+        className="flex items-center gap-1 rounded-lg border border-amber-200 px-2 py-1.5 font-bold text-amber-700 hover:bg-amber-50"
+      >
+        Inativar
+      </button>
+    );
+  const inactiveBadge = (member: TeamMember) =>
+    member.inactive_from ? (
+      <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+        Inativo a partir de {shortMonth(member.inactive_from)}
+      </span>
+    ) : !member.active ? (
+      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">Inativo</span>
+    ) : null;
   const upsertInvoice = (saved: TeamInvoice) =>
     setInvoices((old) => {
       const normalized = { ...saved, reference_month: saved.reference_month ?? saved.competence, amount: toNumber(saved.amount), files: saved.files ?? [] };
@@ -167,7 +220,12 @@ export default function TeamNotesScreen() {
             {tab === "notas" && (
               <Month
                 value={month}
-                move={(n) => setMonth((value) => new Date(value.getFullYear(), value.getMonth() + n, 1))}
+                move={(n) =>
+                  setMonth((value) => {
+                    const next = new Date(value.getFullYear(), value.getMonth() + n, 1);
+                    return monthKey(next) < TEAM_NOTES_START ? value : next;
+                  })
+                }
               />
             )}
             {tab !== "categorias" && (
@@ -247,9 +305,7 @@ export default function TeamNotesScreen() {
                     {categoryName(member.category_id) && (
                       <p className="text-[11px] font-semibold text-teal-700">{categoryName(member.category_id)}</p>
                     )}
-                    {!member.active && (
-                      <span className="mt-0.5 inline-block rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">Inativo</span>
-                    )}
+                    {inactiveBadge(member) && <p className="mt-0.5">{inactiveBadge(member)}</p>}
                     {member.document && <p className="text-[11px] text-slate-400">{member.document}</p>}
                   </td>
                   <td className="p-3 text-slate-600">{member.service || "—"}</td>
@@ -312,6 +368,7 @@ export default function TeamNotesScreen() {
                       >
                         <Pencil className="h-3.5 w-3.5" /> Colaborador
                       </button>
+                      {inactiveButton(member)}
                       <button
                         type="button"
                         onClick={() => setDeletingMember(member)}
@@ -349,7 +406,7 @@ export default function TeamNotesScreen() {
                     {categoryName(member.category_id) && (
                       <span className="ml-2 rounded-full bg-teal-50 px-2 py-0.5 text-[10px] font-bold text-teal-700">{categoryName(member.category_id)}</span>
                     )}
-                    {!member.active && <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">Inativo</span>}
+                    {inactiveBadge(member) && <span className="ml-2">{inactiveBadge(member)}</span>}
                   </p>
                   <p className="text-slate-400">
                     {[member.service, member.document, member.email, `dia ${member.due_day}`].filter(Boolean).join(" · ")}
@@ -357,6 +414,7 @@ export default function TeamNotesScreen() {
                 </div>
                 <div className="flex gap-1.5">
                   <button type="button" onClick={() => setMemberForm(member)} className="rounded-lg border px-2 py-1.5 font-bold text-blue-700 hover:bg-blue-50">Editar</button>
+                  {inactiveButton(member)}
                   <button type="button" onClick={() => setDeletingMember(member)} className="rounded-lg border border-red-200 px-2 py-1.5 font-bold text-red-600 hover:bg-red-50">Excluir</button>
                 </div>
               </div>
@@ -407,6 +465,14 @@ export default function TeamNotesScreen() {
             setInvoiceForm({ member: viewer.member, invoice: viewer.invoice });
             setViewer(null);
           }}
+        />
+      )}
+      {inactivating && (
+        <InactivateDialog
+          member={inactivating}
+          defaultMonth={key}
+          close={() => setInactivating(null)}
+          saved={upsertMember}
         />
       )}
       {deletingMember && (
@@ -470,7 +536,7 @@ function MemberForm({
   const [email, setEmail] = useState(member?.email ?? "");
   const [expected, setExpected] = useState(member?.expected_amount != null ? String(member.expected_amount) : "");
   const [dueDay, setDueDay] = useState(String(member?.due_day ?? 5));
-  const [active, setActive] = useState(member?.active ?? true);
+  const [inactiveFrom, setInactiveFrom] = useState(member?.inactive_from ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const submit = async (event: FormEvent) => {
@@ -492,7 +558,8 @@ function MemberForm({
         email: email.trim(),
         expected_amount: Number.isFinite(expectedValue) ? expectedValue : null,
         due_day: day,
-        active,
+        inactive_from: inactiveFrom || null,
+        active: !inactiveFrom || inactiveFrom > monthKey(new Date()),
         // Só envia a categoria quando a tabela de categorias já existe no banco.
         ...(categoriesReady ? { category_id: categoryId || null } : {}),
       });
@@ -543,9 +610,11 @@ function MemberForm({
               <input required type="number" min={1} max={31} value={dueDay} onChange={(e) => setDueDay(e.target.value)} className={inputClass} />
             </label>
           </div>
-          <label className="flex cursor-pointer items-center gap-2 text-xs font-bold text-slate-700">
-            <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
-            Ativo (espera nota todo mês)
+          <label className="block text-xs font-bold text-slate-700">Inativo a partir de (opcional)
+            <input type="month" min={TEAM_NOTES_START} value={inactiveFrom} onChange={(e) => setInactiveFrom(e.target.value)} className={inputClass} />
+            <span className="mt-1 block font-normal text-slate-400">
+              Vazio = ativo, espera nota todo mês. Com um mês, deixa de ser cobrado a partir dele (as notas antigas ficam guardadas).
+            </span>
           </label>
           {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>}
         </div>
@@ -956,7 +1025,7 @@ function ConfirmDeleteMember({
         <p>
           O colaborador será removido junto com <b>{invoiceCount} nota(s)</b> registrada(s) e os arquivos anexados.
         </p>
-        <p className="text-xs text-slate-400">Se ele só parou de prestar serviço, prefira editar e desmarcar “Ativo” para manter o histórico.</p>
+        <p className="text-xs text-slate-400">Se ele só parou de prestar serviço, use o botão “Inativar” para manter o histórico das notas.</p>
         {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>}
       </div>
       <footer className="flex gap-3 border-t bg-gray-50 px-6 py-4">
@@ -1132,5 +1201,67 @@ function CategoriesPanel({
         {!categories.length && <p className="text-sm text-slate-400">Nenhuma categoria cadastrada ainda.</p>}
       </div>
     </div>
+  );
+}
+
+function InactivateDialog({
+  member,
+  defaultMonth,
+  close,
+  saved,
+}: {
+  member: TeamMember;
+  defaultMonth: string;
+  close: () => void;
+  saved: (member: TeamMember) => void;
+}) {
+  const [from, setFrom] = useState(member.inactive_from ?? defaultMonth);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!/^\d{4}-\d{2}$/.test(from)) {
+      setError("Escolha o mês a partir do qual ele fica inativo.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const result = await saveTeamMember({
+        ...withoutCreatedAt(member),
+        inactive_from: from,
+        active: from > monthKey(new Date()),
+      });
+      saved(result);
+      close();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Não foi possível inativar o colaborador.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal title={`Inativar ${member.name}`} subtitle="As notas já registradas continuam guardadas." close={close}>
+      <form onSubmit={submit}>
+        <div className="space-y-4 p-6">
+          <label className="block text-xs font-bold text-slate-700">Inativo a partir de
+            <input required type="month" min={TEAM_NOTES_START} value={from} onChange={(e) => setFrom(e.target.value)} className={inputClass} />
+          </label>
+          {/^\d{4}-\d{2}$/.test(from) && (
+            <p className="rounded-xl bg-amber-50 p-3 text-xs text-amber-800">
+              A partir de <b>{competenceLabel(from)}</b>, {member.name} deixa de ser cobrado e não aparece mais como
+              pendente ou atrasado. Os meses anteriores e as notas já registradas continuam normalmente.
+            </p>
+          )}
+          {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>}
+        </div>
+        <footer className="flex gap-3 border-t bg-gray-50 px-6 py-4">
+          <button type="button" onClick={close} className="flex-1 rounded-xl border py-2.5 text-sm font-bold">Cancelar</button>
+          <button disabled={busy} className="flex-1 rounded-xl bg-amber-600 py-2.5 text-sm font-bold text-white disabled:opacity-50">
+            {busy ? "Salvando…" : "Inativar"}
+          </button>
+        </footer>
+      </form>
+    </Modal>
   );
 }

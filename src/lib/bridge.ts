@@ -201,6 +201,8 @@ export type TeamMember = {
   expected_amount: number | null;
   due_day: number;
   active: boolean;
+  /** Mês (YYYY-MM) a partir do qual o colaborador deixa de enviar nota. */
+  inactive_from?: string | null;
   category_id?: string | null;
   created_at?: string;
 };
