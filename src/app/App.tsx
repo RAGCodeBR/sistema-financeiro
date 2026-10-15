@@ -138,6 +138,7 @@ type User = {
   units: Unit[];
   canViewReports: boolean;
   canViewIncome: boolean;
+  canManageIncome: boolean;
   canViewTeamNotes: boolean;
   hiddenScreens: string[];
 };
@@ -181,14 +182,16 @@ const units: CostCenter[] = [
 ];
 const reportsAccessFlag = "__reports__";
 const incomeReadAccessFlag = "__income_read__";
+const incomeWriteAccessFlag = "__income_write__";
 // Libera a aba "Notas da equipe" (além do Master).
 const teamNotesAccessFlag = "__team_notes__";
 const profileAccess = (values: string[] | null | undefined) => {
   const raw = values || [];
   return {
-    units: raw.filter((value) => value !== reportsAccessFlag && value !== incomeReadAccessFlag && value !== teamNotesAccessFlag),
+    units: raw.filter((value) => value !== reportsAccessFlag && value !== incomeReadAccessFlag && value !== incomeWriteAccessFlag && value !== teamNotesAccessFlag),
     canViewReports: raw.includes(reportsAccessFlag),
-    canViewIncome: raw.includes(incomeReadAccessFlag),
+    canViewIncome: raw.includes(incomeReadAccessFlag) || raw.includes(incomeWriteAccessFlag),
+    canManageIncome: raw.includes(incomeWriteAccessFlag),
     canViewTeamNotes: raw.includes(teamNotesAccessFlag),
   };
 };
@@ -610,6 +613,7 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
       units: access.units,
       canViewReports: access.canViewReports,
       canViewIncome: access.canViewIncome,
+      canManageIncome: access.canManageIncome,
       canViewTeamNotes: access.canViewTeamNotes,
       hiddenScreens: profile.hidden_screens ?? [],
     };
@@ -2146,6 +2150,7 @@ function UsersAdmin({
     units: Unit[],
     canViewReports: boolean,
     canViewIncome: boolean,
+    canManageIncome: boolean,
     hiddenScreens: string[],
     canViewTeamNotes: boolean,
   ) => Promise<void>;
@@ -2162,6 +2167,7 @@ function UsersAdmin({
   const [editUnits, setEditUnits] = useState<Unit[]>([]);
   const [editCanViewReports, setEditCanViewReports] = useState(false);
   const [editCanViewIncome, setEditCanViewIncome] = useState(false);
+  const [editCanManageIncome, setEditCanManageIncome] = useState(false);
   const [editHiddenScreens, setEditHiddenScreens] = useState<string[]>([]);
   const [editCanViewTeamNotes, setEditCanViewTeamNotes] = useState(false);
   const [savingPermissions, setSavingPermissions] = useState(false);
@@ -2192,6 +2198,7 @@ function UsersAdmin({
     setEditUnits(user.units);
     setEditCanViewReports(user.canViewReports);
     setEditCanViewIncome(user.canViewIncome);
+    setEditCanManageIncome(user.canManageIncome);
     setEditHiddenScreens(user.hiddenScreens ?? []);
     setEditCanViewTeamNotes(user.canViewTeamNotes);
   };
@@ -2212,7 +2219,7 @@ function UsersAdmin({
     setSavingPermissions(true);
     setError("");
     try {
-      await updatePermissions(user, editUnits, editCanViewReports, editCanViewIncome, editHiddenScreens, editCanViewTeamNotes);
+      await updatePermissions(user, editUnits, editCanViewReports, editCanViewIncome, editCanManageIncome, editHiddenScreens, editCanViewTeamNotes);
       setEditingUserId(null);
       setMessage(`Permissões de ${user.name} atualizadas.`);
     } catch (permissionError) {
@@ -2391,7 +2398,11 @@ function UsersAdmin({
                           Relatórios
                         </span>
                       )}
-                      {user.canViewIncome && (
+                      {user.canManageIncome ? (
+                        <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-700">
+                          Receitas (lançar e editar)
+                        </span>
+                      ) : user.canViewIncome && (
                         <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-700">
                           Receitas (consulta)
                         </span>
@@ -2479,9 +2490,17 @@ function UsersAdmin({
                     <input
                       type="checkbox"
                       checked={editCanViewIncome}
-                      onChange={(event) => setEditCanViewIncome(event.target.checked)}
+                      onChange={(event) => { setEditCanViewIncome(event.target.checked); if (!event.target.checked) setEditCanManageIncome(false); }}
                     />
                     Visualizar receitas nos centros liberados (sem editar)
+                  </label>
+                  <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs font-bold text-emerald-800">
+                    <input
+                      type="checkbox"
+                      checked={editCanManageIncome}
+                      onChange={(event) => { setEditCanManageIncome(event.target.checked); if (event.target.checked) setEditCanViewIncome(true); }}
+                    />
+                    Lançar, editar e dar baixa em receitas nos centros liberados
                   </label>
                   <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs font-bold text-teal-800">
                     <input
@@ -3673,6 +3692,7 @@ function App() {
         units: access.units,
         canViewReports: access.canViewReports,
         canViewIncome: access.canViewIncome,
+        canManageIncome: access.canManageIncome,
         canViewTeamNotes: access.canViewTeamNotes,
         hiddenScreens: profile.hidden_screens ?? [],
       });
@@ -3884,6 +3904,7 @@ function App() {
           units: access.units,
           canViewReports: access.canViewReports,
           canViewIncome: access.canViewIncome,
+          canManageIncome: access.canManageIncome,
           canViewTeamNotes: access.canViewTeamNotes,
           hiddenScreens: profile.hidden_screens ?? [],
         };
@@ -4018,6 +4039,7 @@ function App() {
       ...user.units,
       ...(user.canViewReports ? [] : [reportsAccessFlag]),
       ...(user.canViewIncome ? [incomeReadAccessFlag] : []),
+      ...(user.canManageIncome ? [incomeWriteAccessFlag] : []),
       ...(user.canViewTeamNotes ? [teamNotesAccessFlag] : []),
     ];
     const { error } = await supabase
@@ -4032,6 +4054,7 @@ function App() {
     allowedUnits: Unit[],
     canViewReports: boolean,
     canViewIncome: boolean,
+    canManageIncome: boolean,
     hiddenScreens: string[],
     canViewTeamNotes: boolean,
   ) => {
@@ -4042,6 +4065,7 @@ function App() {
           ...allowedUnits,
           ...(canViewReports ? [reportsAccessFlag] : []),
           ...(canViewIncome ? [incomeReadAccessFlag] : []),
+          ...(canManageIncome ? [incomeWriteAccessFlag] : []),
           ...(canViewTeamNotes ? [teamNotesAccessFlag] : []),
         ],
         hidden_screens: hiddenScreens,
@@ -4102,9 +4126,10 @@ function App() {
       </main>
     );
   // Operadores autorizados podem consultar receitas nos próprios centros;
-  // criação, edição e exclusão de receitas continuam exclusivas do Master.
+  // A escrita de receitas exige a permissão própria, além do centro liberado.
   const isMaster = currentUser.role === "master";
   const canViewIncome = isMaster || currentUser.canViewIncome;
+  const canManageIncome = isMaster || currentUser.canManageIncome;
   const allowedUnits =
     currentUser.role === "master"
       ? centers
@@ -4637,7 +4662,7 @@ function App() {
                 >
                   − Despesa
                 </button>
-                {isMaster && (
+                {canManageIncome && (
                   <button
                     onClick={() => open("receita")}
                     className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-extrabold text-white hover:bg-emerald-700"
@@ -5023,7 +5048,7 @@ function App() {
                   entries={current.slice(0, 5)}
                   categories={categories}
                   banks={banks}
-                  readOnlyIncome={!isMaster}
+                  readOnlyIncome={!canManageIncome}
                   settle={settle}
                   edit={(x) =>
                     x.seriesId
@@ -5121,7 +5146,7 @@ function App() {
               contacts={contacts}
               allowedUnits={allowedUnits}
               tableReady={contactsTableReady}
-              allowClients={isMaster}
+              allowClients={canManageIncome}
               save={async (contact) => {
                 if (!allowedUnits.some((unit) => unit.name === contact.unit))
                   throw new Error("Este centro de custo não está disponível para seu acesso.");
@@ -5243,7 +5268,7 @@ function App() {
                         </div>
                       )}
                     </div>
-                    {((isMaster ? ["receita", "despesa"] : ["despesa"]) as Kind[]).map((k) => (
+                    {((canManageIncome ? ["receita", "despesa"] : ["despesa"]) as Kind[]).map((k) => (
                       <div key={k} className="mb-3">
                         <p
                           className={`mb-2 text-[11px] font-extrabold uppercase ${k === "receita" ? "text-emerald-700" : "text-red-700"}`}
@@ -5322,7 +5347,7 @@ function App() {
                     <Plus className="h-4 w-4" />
                     Nova despesa
                   </button>
-                  {isMaster && (
+                  {canManageIncome && (
                     <button
                       onClick={() => open("receita")}
                       className="flex items-center gap-1 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700"
@@ -5545,7 +5570,7 @@ function App() {
                 entries={list}
                 categories={categories}
                 banks={banks}
-                readOnlyIncome={!isMaster}
+                readOnlyIncome={!canManageIncome}
                 settle={settle}
                 edit={(x) =>
                   x.seriesId
@@ -5593,7 +5618,7 @@ function App() {
           contactsTableReady={contactsTableReady}
           allowedUnits={allowedUnits}
           banks={banks}
-          allowIncome={isMaster}
+          allowIncome={canManageIncome}
           editing={editing}
           scope={editScope}
           close={() => {
@@ -5633,7 +5658,7 @@ function App() {
         <NewCategory
           close={() => setCategoryModal(false)}
           allowedUnits={allowedUnits}
-          allowIncome={isMaster}
+          allowIncome={canManageIncome}
           save={async (c) => {
             await saveRemoteCategory(c);
             setCategories((x) => [...x, c]);
@@ -5644,7 +5669,7 @@ function App() {
         <NewCategory
           category={editingCategory}
           allowedUnits={allowedUnits}
-          allowIncome={isMaster}
+          allowIncome={canManageIncome}
           close={() => setEditingCategory(null)}
           save={async (c) => {
             await saveRemoteCategory(c);
