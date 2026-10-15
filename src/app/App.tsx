@@ -24,6 +24,7 @@ import {
   setRemoteCounterpartyArchived,
 } from "../lib/bridge";
 import { addMonthsClamped, changedSeriesFields, seriesDueDate } from "../lib/seriesDates";
+import { filterEntriesByPeriodAndText, normalizeEntrySearch } from "../lib/entryPeriod";
 import { CurrencyInput, Month, fmt, labelMonth, moneyInput, parseMoney } from "./shared";
 import TeamNotesScreen from "./TeamNotes";
 import BanksSection from "./Banks";
@@ -98,9 +99,6 @@ type Entry = {
   discount?: number;
   bankId?: string | null;
 };
-// Busca sem diferenciar acentos nem maiúsculas ("divida" acha "Dívida").
-const normalizeSearch = (text: string) =>
-  text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR").trim();
 // Valor que efetivamente saiu/entrou: numa despesa já paga, soma os juros e
 // abate o desconto.
 const entryValue = (entry: Entry) =>
@@ -4212,15 +4210,12 @@ function App() {
         return { start: localDate(monday), end: localDate(sunday), label: "Esta semana" };
       }
       if (periodMode === "custom") {
-        const start = periodFrom || todayStr;
-        const end = periodTo || todayStr;
-        return { start, end, label: "Período personalizado" };
+        return { start: periodFrom, end: periodTo, label: "Período personalizado" };
       }
       const first = new Date(month.getFullYear(), month.getMonth(), 1);
       const last = new Date(month.getFullYear(), month.getMonth() + 1, 0);
       return { start: localDate(first), end: localDate(last), label: labelMonth(month) };
     })(),
-    listCurrent = visible.filter((x) => x.date >= period.start && x.date <= period.end),
     payToday = visible.filter(
       (x) => x.kind === "despesa" && x.status === "previsto" && x.date === todayStr,
     ),
@@ -4447,14 +4442,13 @@ function App() {
       setModal(kind);
       setScreen("lancamentos");
     },
-    searchText = normalizeSearch(search),
-    // Com texto na busca, procura em todos os meses (os outros filtros valem).
-    list = (entryFilter === "atrasadas" ? overdue : searchText ? visible : listCurrent)
-      .filter(
-        (x) =>
-          !searchText ||
-          normalizeSearch(`${x.description} ${x.beneficiary || ""}`).includes(searchText),
-      )
+    searchText = normalizeEntrySearch(search),
+    // A busca respeita o período escolhido; só a aba Atrasadas cobre todos os meses.
+    list = filterEntriesByPeriodAndText(
+      entryFilter === "atrasadas" ? overdue : visible,
+      entryFilter === "atrasadas" ? null : period,
+      search,
+    )
       .filter((x) => filter === "Todos" || x.unit === filter)
       .filter(
         (x) =>
@@ -4522,6 +4516,13 @@ function App() {
       entryFilter !== "recebidas" &&
       !(entryFilter === "atrasadas" && overdueKind === "receita"),
     // Frase que explica exatamente o que está sendo somado.
+    periodDescription = entryFilter === "atrasadas"
+      ? "todos os meses"
+      : !period.start || !period.end || period.start > period.end
+        ? "intervalo de datas inválido"
+        : periodMode === "mes"
+          ? labelMonth(month)
+          : `${period.label}: ${new Date(`${period.start}T12:00:00`).toLocaleDateString("pt-BR")} a ${new Date(`${period.end}T12:00:00`).toLocaleDateString("pt-BR")}`,
     totalsDescription = [
       {
         todos: "Todos os tipos",
@@ -4536,13 +4537,8 @@ function App() {
               ? "Contas a receber atrasadas"
               : "Atrasadas",
       }[entryFilter],
-      searchText
-        ? `busca “${search.trim()}” em todos os meses`
-        : entryFilter === "atrasadas"
-          ? "vencidas de todos os meses"
-          : periodMode === "mes"
-            ? labelMonth(month)
-            : `${period.label}: ${new Date(`${period.start}T12:00:00`).toLocaleDateString("pt-BR")} a ${new Date(`${period.end}T12:00:00`).toLocaleDateString("pt-BR")}`,
+      searchText ? `busca “${search.trim()}”` : null,
+      entryFilter === "atrasadas" ? "vencidas de todos os meses" : periodDescription,
       filter === "Todos" ? "todos os centros" : `centro ${filter}`,
       counterpartyFilter === "todos"
         ? null
@@ -5336,7 +5332,7 @@ function App() {
                   <p className="text-xs text-gray-400">
                     {entryFilter === "atrasadas"
                       ? "Pendências vencidas de todos os meses."
-                      : "Consulte, filtre e dê baixa nos lançamentos do mês."}
+                      : "Consulte, filtre e dê baixa nos lançamentos do período."}
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -5358,9 +5354,9 @@ function App() {
                   )}
                 </div>
               </div>
-              <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-                <div className="space-y-2">
-                  <div className="relative max-w-md">
+              <div className="mb-5 border-y border-slate-200">
+                <div className="flex flex-wrap items-center justify-between gap-3 py-4">
+                  <div className="relative w-full max-w-lg">
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                     <input
                       type="search"
@@ -5368,7 +5364,7 @@ function App() {
                       onChange={(event) => setSearch(event.target.value)}
                       placeholder="Buscar lançamento pelo nome…"
                       aria-label="Buscar lançamento pelo nome"
-                      className="w-full rounded-xl border bg-white py-2.5 pl-9 pr-9 text-sm"
+                      className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-9 text-sm"
                     />
                     {search && (
                       <button
@@ -5381,11 +5377,12 @@ function App() {
                       </button>
                     )}
                   </div>
-                  {searchText && (
-                    <p className="text-[11px] font-semibold text-blue-700">
-                      Buscando “{search.trim()}” em todos os meses · {list.length} resultado(s)
-                    </p>
-                  )}
+                  <span className="text-xs font-semibold text-slate-500">
+                    {list.length} {list.length === 1 ? "resultado" : "resultados"}
+                  </span>
+                </div>
+                <div className="grid gap-2 border-t border-slate-100 py-3 sm:grid-cols-[110px_minmax(0,1fr)] sm:items-center">
+                  <span className="text-xs font-bold text-slate-500">Situação</span>
                   <div className="flex flex-wrap gap-2">
                     {[
                       ["todos", "Todos"],
@@ -5403,52 +5400,18 @@ function App() {
                           );
                           if (value !== "atrasadas") setOverdueKind("todos");
                         }}
-                        className={`rounded-full px-3 py-2 text-xs font-bold ${entryFilter === value ? "bg-[#14213d] text-white" : "border bg-white text-gray-600 hover:bg-gray-50"}`}
+                        className={`rounded-full px-3 py-1.5 text-xs font-bold ${entryFilter === value ? "bg-[#14213d] text-white" : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"}`}
                       >
                         {label}
                       </button>
                     ))}
                   </div>
-                  {entryFilter !== "atrasadas" && (
+                </div>
+                <div className="grid gap-2 border-t border-slate-100 py-3 sm:grid-cols-[110px_minmax(0,1fr)] sm:items-center">
+                  <span className="text-xs font-bold text-slate-500">Período</span>
+                  {entryFilter === "atrasadas" ? (
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
-                        Período:
-                      </span>
-                      {([
-                        ["hoje", "Hoje"],
-                        ["semana", "Semana"],
-                        ["mes", "Mês"],
-                        ["custom", "Personalizado"],
-                      ] as const).map(([value, label]) => (
-                        <button
-                          key={value}
-                          onClick={() => {
-                            if (value === "custom" && !periodFrom && !periodTo) {
-                              const now = new Date();
-                              setPeriodFrom(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`);
-                              setPeriodTo(todayStr);
-                            }
-                            setPeriodMode(value);
-                          }}
-                          className={`rounded-full px-2.5 py-1.5 text-[11px] font-bold ${periodMode === value ? "bg-indigo-600 text-white" : "border bg-white text-gray-600"}`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                      {periodMode === "custom" && (
-                        <span className="flex items-center gap-1">
-                          <input type="date" value={periodFrom} onChange={(event) => setPeriodFrom(event.target.value)} className="rounded-lg border bg-white px-2 py-1 text-xs font-semibold text-gray-700" />
-                          <span className="text-gray-400">até</span>
-                          <input type="date" value={periodTo} onChange={(event) => setPeriodTo(event.target.value)} className="rounded-lg border bg-white px-2 py-1 text-xs font-semibold text-gray-700" />
-                        </span>
-                      )}
-                    </div>
-                  )}
-                  {entryFilter === "atrasadas" && (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
-                        Tipo:
-                      </span>
+                      <span className="mr-2 text-xs text-slate-500">Todos os meses</span>
                       {[
                         ["todos", "Todas"],
                         ["despesa", "A pagar"],
@@ -5457,20 +5420,89 @@ function App() {
                         <button
                           key={value}
                           onClick={() => setOverdueKind(value as Kind | "todos")}
-                          className={`rounded-full px-2.5 py-1.5 text-[11px] font-bold ${overdueKind === value ? "bg-red-600 text-white" : "border bg-white text-gray-600"}`}
+                          className={`rounded-full px-3 py-1.5 text-xs font-bold ${overdueKind === value ? "bg-red-600 text-white" : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"}`}
                         >
                           {label}
                         </button>
                       ))}
                     </div>
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                      <div className="flex flex-wrap gap-1.5">
+                        {([
+                          ["hoje", "Hoje"],
+                          ["semana", "Semana"],
+                          ["mes", "Mês"],
+                          ["custom", "Personalizado"],
+                        ] as const).map(([value, label]) => (
+                          <button
+                            key={value}
+                            onClick={() => {
+                              if (value === "custom" && (!periodFrom || !periodTo)) {
+                                setPeriodFrom(period.start);
+                                setPeriodTo(period.end);
+                              }
+                              setPeriodMode(value);
+                            }}
+                            className={`rounded-full px-3 py-1.5 text-xs font-bold ${periodMode === value ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                      {periodMode === "mes" && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <input
+                            type="month"
+                            aria-label="Escolher mês"
+                            value={`${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}`}
+                            onChange={(event) => {
+                              if (!event.target.value) return;
+                              setMonth(new Date(`${event.target.value}-01T12:00:00`));
+                            }}
+                            className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700"
+                          />
+                          <button type="button" onClick={() => {
+                            const now = new Date();
+                            setMonth(new Date(now.getFullYear(), now.getMonth(), 1));
+                          }} className="text-xs font-semibold text-blue-700 hover:underline">
+                            Mês vigente
+                          </button>
+                        </div>
+                      )}
+                      {periodMode === "custom" && (
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                          <label className="flex items-center gap-1.5">
+                            De
+                            <input type="date" value={period.start} onChange={(event) => {
+                              setPeriodFrom(event.target.value);
+                              setPeriodTo(period.end);
+                            }} className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700" />
+                          </label>
+                          <label className="flex items-center gap-1.5">
+                            Até
+                            <input type="date" value={period.end} onChange={(event) => {
+                              setPeriodFrom(period.start);
+                              setPeriodTo(event.target.value);
+                            }} className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700" />
+                          </label>
+                        </div>
+                      )}
+                      {periodMode !== "mes" && periodMode !== "custom" && (
+                        <span className="text-xs text-slate-500">{periodDescription}</span>
+                      )}
+                      {(!period.start || !period.end || period.start > period.end) && (
+                        <span className="text-xs font-semibold text-amber-700">Selecione um intervalo válido</span>
+                      )}
+                    </div>
                   )}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[11px] font-bold uppercase tracking-wide text-gray-400">
-                      Centro de custo:
-                    </span>
+                </div>
+                <div className="grid gap-2 border-t border-slate-100 py-3 sm:grid-cols-[110px_minmax(0,1fr)] sm:items-center">
+                  <span className="text-xs font-bold text-slate-500">Centro de custo</span>
+                  <div className="flex flex-wrap gap-2">
                     <button
                       onClick={() => setFilter("Todos")}
-                      className={`rounded-full px-2.5 py-1.5 text-[11px] font-bold ${filter === "Todos" ? "bg-blue-700 text-white" : "border bg-white text-gray-600"}`}
+                      className={`rounded-full px-3 py-1.5 text-xs font-bold ${filter === "Todos" ? "bg-blue-700 text-white" : "text-slate-600 hover:bg-slate-100"}`}
                     >
                       Todos
                     </button>
@@ -5478,45 +5510,42 @@ function App() {
                       <button
                         key={unit.name}
                         onClick={() => setFilter(unit.name)}
-                        className={`rounded-full px-2.5 py-1.5 text-[11px] font-bold ${filter === unit.name ? "bg-blue-700 text-white" : "border bg-white text-gray-600"}`}
+                        className={`rounded-full px-3 py-1.5 text-xs font-bold ${filter === unit.name ? "bg-blue-700 text-white" : "text-slate-600 hover:bg-slate-100"}`}
                       >
                         {unit.name}
                       </button>
                     ))}
                   </div>
-                  <label className="flex flex-wrap items-center gap-2 text-[11px] font-bold uppercase tracking-wide text-gray-400">
-                    Fornecedor / favorecido ou cliente / pagador:
-                    <select
-                      value={counterpartyFilter}
-                      onChange={(event) => setCounterpartyFilter(event.target.value)}
-                      className="max-w-full min-w-52 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold normal-case tracking-normal text-gray-700"
-                    >
-                      <option value="todos">Todos</option>
-                      {(["despesa", "receita"] as Kind[]).map((kind) => (
-                        <optgroup
-                          key={kind}
-                          label={kind === "despesa" ? "Fornecedores / favorecidos" : "Clientes / pagadores"}
-                        >
-                          {counterparties
-                            .filter((person) => person.kind === kind)
-                            .map((person) => (
-                              <option key={person.key} value={person.key}>
-                                {person.name}
-                              </option>
-                            ))}
-                        </optgroup>
-                      ))}
-                    </select>
-                  </label>
                 </div>
-                {entryFilter === "atrasadas" || searchText ? (
-                  <span className="rounded-full bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600">Todos os meses</span>
-                ) : periodMode === "mes" ? (
-                  <Month value={month} move={move} />
-                ) : (
-                  <span className="rounded-full bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-700">
-                    {new Date(`${period.start}T12:00:00`).toLocaleDateString("pt-BR")} – {new Date(`${period.end}T12:00:00`).toLocaleDateString("pt-BR")}
-                  </span>
+                <div className="grid gap-2 border-t border-slate-100 py-3 sm:grid-cols-[110px_minmax(0,1fr)] sm:items-center">
+                  <label htmlFor="entry-counterparty-filter" className="text-xs font-bold text-slate-500">Fornecedor ou cliente</label>
+                  <select
+                    id="entry-counterparty-filter"
+                    value={counterpartyFilter}
+                    onChange={(event) => setCounterpartyFilter(event.target.value)}
+                    className="w-full max-w-xs rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
+                  >
+                    <option value="todos">Todos</option>
+                    {(["despesa", "receita"] as Kind[]).map((kind) => (
+                      <optgroup
+                        key={kind}
+                        label={kind === "despesa" ? "Fornecedores / favorecidos" : "Clientes / pagadores"}
+                      >
+                        {counterparties
+                          .filter((person) => person.kind === kind)
+                          .map((person) => (
+                            <option key={person.key} value={person.key}>
+                              {person.name}
+                            </option>
+                          ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </div>
+                {searchText && (
+                  <p className="border-t border-slate-100 py-2 text-xs text-blue-700">
+                    Buscando “{search.trim()}” em {periodDescription}
+                  </p>
                 )}
               </div>
               <div className="mb-5 rounded-xl border border-blue-100 bg-blue-50/50 p-4">
