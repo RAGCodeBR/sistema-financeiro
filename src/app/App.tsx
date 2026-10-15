@@ -137,6 +137,7 @@ type User = {
   role: "master" | "operador";
   units: Unit[];
   canViewReports: boolean;
+  canViewIncome: boolean;
   canViewTeamNotes: boolean;
   hiddenScreens: string[];
 };
@@ -179,13 +180,15 @@ const units: CostCenter[] = [
   makeCostCenter("Pessoa Física", "PF", "amber"),
 ];
 const reportsAccessFlag = "__reports__";
+const incomeReadAccessFlag = "__income_read__";
 // Libera a aba "Notas da equipe" (além do Master).
 const teamNotesAccessFlag = "__team_notes__";
 const profileAccess = (values: string[] | null | undefined) => {
   const raw = values || [];
   return {
-    units: raw.filter((value) => value !== reportsAccessFlag && value !== teamNotesAccessFlag),
+    units: raw.filter((value) => value !== reportsAccessFlag && value !== incomeReadAccessFlag && value !== teamNotesAccessFlag),
     canViewReports: raw.includes(reportsAccessFlag),
+    canViewIncome: raw.includes(incomeReadAccessFlag),
     canViewTeamNotes: raw.includes(teamNotesAccessFlag),
   };
 };
@@ -606,6 +609,7 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
       role: profile.role as User["role"],
       units: access.units,
       canViewReports: access.canViewReports,
+      canViewIncome: access.canViewIncome,
       canViewTeamNotes: access.canViewTeamNotes,
       hiddenScreens: profile.hidden_screens ?? [],
     };
@@ -2141,6 +2145,7 @@ function UsersAdmin({
     user: User,
     units: Unit[],
     canViewReports: boolean,
+    canViewIncome: boolean,
     hiddenScreens: string[],
     canViewTeamNotes: boolean,
   ) => Promise<void>;
@@ -2156,6 +2161,7 @@ function UsersAdmin({
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editUnits, setEditUnits] = useState<Unit[]>([]);
   const [editCanViewReports, setEditCanViewReports] = useState(false);
+  const [editCanViewIncome, setEditCanViewIncome] = useState(false);
   const [editHiddenScreens, setEditHiddenScreens] = useState<string[]>([]);
   const [editCanViewTeamNotes, setEditCanViewTeamNotes] = useState(false);
   const [savingPermissions, setSavingPermissions] = useState(false);
@@ -2185,6 +2191,7 @@ function UsersAdmin({
     setEditingUserId(user.id);
     setEditUnits(user.units);
     setEditCanViewReports(user.canViewReports);
+    setEditCanViewIncome(user.canViewIncome);
     setEditHiddenScreens(user.hiddenScreens ?? []);
     setEditCanViewTeamNotes(user.canViewTeamNotes);
   };
@@ -2205,7 +2212,7 @@ function UsersAdmin({
     setSavingPermissions(true);
     setError("");
     try {
-      await updatePermissions(user, editUnits, editCanViewReports, editHiddenScreens, editCanViewTeamNotes);
+      await updatePermissions(user, editUnits, editCanViewReports, editCanViewIncome, editHiddenScreens, editCanViewTeamNotes);
       setEditingUserId(null);
       setMessage(`Permissões de ${user.name} atualizadas.`);
     } catch (permissionError) {
@@ -2384,6 +2391,11 @@ function UsersAdmin({
                           Relatórios
                         </span>
                       )}
+                      {user.canViewIncome && (
+                        <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-700">
+                          Receitas (consulta)
+                        </span>
+                      )}
                       {user.canViewTeamNotes && (
                         <span className="rounded-full bg-teal-50 px-2 py-1 text-xs font-bold text-teal-700">
                           Notas da equipe
@@ -2463,6 +2475,14 @@ function UsersAdmin({
                     />
                     Permitir acesso à aba Relatórios
                   </label>
+                  <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs font-bold text-emerald-800">
+                    <input
+                      type="checkbox"
+                      checked={editCanViewIncome}
+                      onChange={(event) => setEditCanViewIncome(event.target.checked)}
+                    />
+                    Visualizar receitas nos centros liberados (sem editar)
+                  </label>
                   <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs font-bold text-teal-800">
                     <input
                       type="checkbox"
@@ -2507,6 +2527,7 @@ function Entries({
   entries,
   categories,
   banks = [],
+  readOnlyIncome = false,
   settle,
   edit,
   remove,
@@ -2515,6 +2536,7 @@ function Entries({
   entries: Entry[];
   categories: Category[];
   banks?: Bank[];
+  readOnlyIncome?: boolean;
   settle: (x: Entry) => void;
   edit: (x: Entry) => void;
   remove: (x: Entry) => void;
@@ -2546,6 +2568,7 @@ function Entries({
       {[...entries]
         .sort((a, b) => b.date.localeCompare(a.date))
         .map((x) => {
+          const canChange = !(readOnlyIncome && x.kind === "receita");
           const c = categories.find(
             (v) =>
               v.name === x.category && v.unit === x.unit && v.kind === x.kind,
@@ -2553,18 +2576,18 @@ function Entries({
           return (
             <div
               key={x.id}
-              role={open ? "button" : undefined}
-              tabIndex={open ? 0 : undefined}
-              title={open ? "Clique para editar este lançamento" : undefined}
+              role={open && canChange ? "button" : undefined}
+              tabIndex={open && canChange ? 0 : undefined}
+              title={open && canChange ? "Clique para editar este lançamento" : undefined}
               onClick={(event) => {
                 // Botões e anexos dentro da linha mantêm a própria ação.
-                if (!open || (event.target as HTMLElement).closest("button, a, input, label")) return;
+                if (!open || !canChange || (event.target as HTMLElement).closest("button, a, input, label")) return;
                 open(x);
               }}
               onKeyDown={(event) => {
-                if (open && event.key === "Enter" && event.target === event.currentTarget) open(x);
+                if (open && canChange && event.key === "Enter" && event.target === event.currentTarget) open(x);
               }}
-              className={`flex flex-wrap items-center gap-3 py-3 ${open ? "-mx-2 cursor-pointer rounded-xl px-2 transition hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600" : ""}`}
+              className={`flex flex-wrap items-center gap-3 py-3 ${open && canChange ? "-mx-2 cursor-pointer rounded-xl px-2 transition hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600" : ""}`}
             >
               <Icon category={c} />
               <div className="min-w-0 flex-1">
@@ -2657,7 +2680,7 @@ function Entries({
                   {entryScheduleLabel(x)}
                 </p>
               </div>
-              <div className="flex gap-2">
+              {canChange && <div className="flex gap-2">
                 <button
                   onClick={() => edit(x)}
                   className="rounded-lg border px-2 py-1.5 text-[11px] font-bold"
@@ -2680,7 +2703,7 @@ function Entries({
                       ? "Dar baixa"
                       : "Receber"}
                 </button>
-              </div>
+              </div>}
             </div>
           );
         })}
@@ -3649,6 +3672,7 @@ function App() {
         role: profile.role as User["role"],
         units: access.units,
         canViewReports: access.canViewReports,
+        canViewIncome: access.canViewIncome,
         canViewTeamNotes: access.canViewTeamNotes,
         hiddenScreens: profile.hidden_screens ?? [],
       });
@@ -3738,7 +3762,9 @@ function App() {
         }
         // Keep recurring series alive without pre-creating decades of records.
         // Only missing months inside the rolling three-year window are written.
-        const projectedEntries = nextRecurringEntries(loadedEntries);
+        const projectedEntries = nextRecurringEntries(
+          loadedEntries.filter((entry) => entry.kind === "despesa" || currentUser.role === "master"),
+        );
         let entriesToShow = loadedEntries;
         if (projectedEntries.length) {
           try {
@@ -3857,6 +3883,7 @@ function App() {
           role: profile.role as User["role"],
           units: access.units,
           canViewReports: access.canViewReports,
+          canViewIncome: access.canViewIncome,
           canViewTeamNotes: access.canViewTeamNotes,
           hiddenScreens: profile.hidden_screens ?? [],
         };
@@ -3990,6 +4017,7 @@ function App() {
     const allowedUnits = [
       ...user.units,
       ...(user.canViewReports ? [] : [reportsAccessFlag]),
+      ...(user.canViewIncome ? [incomeReadAccessFlag] : []),
       ...(user.canViewTeamNotes ? [teamNotesAccessFlag] : []),
     ];
     const { error } = await supabase
@@ -4003,6 +4031,7 @@ function App() {
     user: User,
     allowedUnits: Unit[],
     canViewReports: boolean,
+    canViewIncome: boolean,
     hiddenScreens: string[],
     canViewTeamNotes: boolean,
   ) => {
@@ -4012,6 +4041,7 @@ function App() {
         allowed_units: [
           ...allowedUnits,
           ...(canViewReports ? [reportsAccessFlag] : []),
+          ...(canViewIncome ? [incomeReadAccessFlag] : []),
           ...(canViewTeamNotes ? [teamNotesAccessFlag] : []),
         ],
         hidden_screens: hiddenScreens,
@@ -4071,9 +4101,10 @@ function App() {
         </div>
       </main>
     );
-  // Receitas, clientes/pagadores, saldos e resultado são exclusivos do Master
-  // (o banco também bloqueia; aqui só deixamos a tela coerente).
+  // Operadores autorizados podem consultar receitas nos próprios centros;
+  // criação, edição e exclusão de receitas continuam exclusivas do Master.
   const isMaster = currentUser.role === "master";
+  const canViewIncome = isMaster || currentUser.canViewIncome;
   const allowedUnits =
     currentUser.role === "master"
       ? centers
@@ -4457,7 +4488,7 @@ function App() {
     ),
     // Quais quadros fazem sentido para o filtro de tipo escolhido.
     showIncomeTotals =
-      isMaster &&
+      canViewIncome &&
       entryFilter !== "pagar" &&
       entryFilter !== "pagas" &&
       !(entryFilter === "atrasadas" && overdueKind === "despesa"),
@@ -4739,7 +4770,7 @@ function App() {
                   { title: "A pagar", value: totals.pay, Icon: CreditCard, style: "text-orange-600 bg-orange-50", filter: "pagar", today: false },
                   { title: "A receber", value: totals.receive, Icon: Wallet, style: "text-blue-600 bg-blue-50", filter: "receber", today: false },
                 ] as const)
-                  .filter((card) => isMaster || (card.filter !== "recebidas" && card.filter !== "receber"))
+                  .filter((card) => canViewIncome || (card.filter !== "recebidas" && card.filter !== "receber"))
                   .map(({ title, value, Icon: CardIcon, style, filter: targetFilter, today: isToday }) => {
                   return (
                     <button
@@ -4813,7 +4844,7 @@ function App() {
                       {overduePay.length} {overduePay.length === 1 ? "lançamento vencido" : "lançamentos vencidos"} · Ver lançamentos
                     </span>
                   </button>
-                  {isMaster && (
+                  {canViewIncome && (
                   <button
                     type="button"
                     onClick={() => openOverdue("receita")}
@@ -4916,7 +4947,7 @@ function App() {
                         </div>
                       </div>
                       <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
-                        {isMaster && (
+                        {canViewIncome && (
                           <p>
                             Receitas recebidas
                             <b className="block text-emerald-600">
@@ -4942,7 +4973,7 @@ function App() {
                             )}
                           </b>
                         </p>
-                        {isMaster && (
+                        {canViewIncome && (
                         <p>
                           A receber
                           <b className="block text-blue-600">
@@ -4964,7 +4995,7 @@ function App() {
                 })}
               </section>
               <section className="mt-5 grid gap-4 lg:grid-cols-2">
-                {isMaster && (
+                {canViewIncome && (
                   <Breakdown
                     kind="receita"
                     entries={current}
@@ -4979,7 +5010,7 @@ function App() {
               </section>
               <div className="mt-5 grid gap-4 lg:grid-cols-2">
                 <CounterpartyOverview kind="despesa" entries={current} contacts={contacts.filter((contact) => allowedUnits.some((allowed) => allowed.name === contact.unit))} todayKey={today} />
-                {isMaster && <CounterpartyOverview kind="receita" entries={current} contacts={contacts.filter((contact) => allowedUnits.some((allowed) => allowed.name === contact.unit))} todayKey={today} />}
+                {canViewIncome && <CounterpartyOverview kind="receita" entries={current} contacts={contacts.filter((contact) => allowedUnits.some((allowed) => allowed.name === contact.unit))} todayKey={today} />}
               </div>
               <section className="mt-5 rounded-2xl bg-white p-5 shadow-sm">
                 <h2 className="font-extrabold text-[#14213d]">
@@ -4992,6 +5023,7 @@ function App() {
                   entries={current.slice(0, 5)}
                   categories={categories}
                   banks={banks}
+                  readOnlyIncome={!isMaster}
                   settle={settle}
                   edit={(x) =>
                     x.seriesId
@@ -5127,7 +5159,7 @@ function App() {
               allowedUnits={allowedUnits}
               categories={categories}
               contacts={contacts.filter((contact) => allowedUnits.some((allowed) => allowed.name === contact.unit))}
-              incomeVisible={isMaster}
+              incomeVisible={canViewIncome}
             />
           ) : screen === "usuarios" ? (
             <UsersAdmin
@@ -5333,9 +5365,9 @@ function App() {
                     {[
                       ["todos", "Todos"],
                       ["pagar", "Contas a pagar"],
-                      ...(isMaster ? [["receber", "Contas a receber"]] : []),
+                      ...(canViewIncome ? [["receber", "Contas a receber"]] : []),
                       ["pagas", "Despesas pagas"],
-                      ...(isMaster ? [["recebidas", "Receitas recebidas"]] : []),
+                      ...(canViewIncome ? [["recebidas", "Receitas recebidas"]] : []),
                       ["atrasadas", "Atrasadas"],
                     ].map(([value, label]) => (
                       <button
@@ -5395,7 +5427,7 @@ function App() {
                       {[
                         ["todos", "Todas"],
                         ["despesa", "A pagar"],
-                        ...(isMaster ? [["receita", "A receber"]] : []),
+                        ...(canViewIncome ? [["receita", "A receber"]] : []),
                       ].map(([value, label]) => (
                         <button
                           key={value}
@@ -5513,6 +5545,7 @@ function App() {
                 entries={list}
                 categories={categories}
                 banks={banks}
+                readOnlyIncome={!isMaster}
                 settle={settle}
                 edit={(x) =>
                   x.seriesId
