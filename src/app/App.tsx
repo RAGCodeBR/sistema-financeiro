@@ -106,7 +106,7 @@ const entryValue = (entry: Entry) =>
   (entry.kind === "despesa" && entry.status === "realizado"
     ? (entry.juros || 0) - (entry.discount || 0)
     : 0);
-// Dias de atraso de uma despesa paga: diferença entre pagamento e vencimento.
+// Dias de atraso entre o pagamento/recebimento e o vencimento.
 const lateDays = (entry: Entry) =>
   entry.paidDate && entry.paidDate > entry.date
     ? Math.round((Date.parse(`${entry.paidDate}T12:00:00`) - Date.parse(`${entry.date}T12:00:00`)) / 86400000)
@@ -1268,7 +1268,7 @@ function EntryForm({
   contactsTableReady: boolean;
   allowedUnits: typeof units;
   banks: Bank[];
-  /** Só o Master pode lançar receitas; os demais só despesas. */
+  /** Receitas exigem acesso de gestão; os demais usuários lançam despesas. */
   allowIncome?: boolean;
   editing: Entry | null;
   scope?: "one" | "series";
@@ -1521,7 +1521,7 @@ function EntryForm({
           installments: sameMonthInstallments ? 1 : installments,
           attachments,
           juros: kind === "despesa" ? finalJuros : 0,
-          paidDate: kind === "despesa" ? paidDate || undefined : undefined,
+          paidDate: paidDate || "",
           ...(kind === "despesa"
             ? { discount: finalDiscount, bankId: bankId || null }
             : {}),
@@ -1831,7 +1831,7 @@ function EntryForm({
               <CurrencyInput value={amount} onChange={setAmount} />
             </label>
             <label className="text-xs font-bold">
-              Data
+              {kind === "receita" ? "Data prevista" : "Data"}
               <input
                 required
                 type="date"
@@ -1900,6 +1900,20 @@ function EntryForm({
                 )}
               </label>
             </div>
+          )}
+          {kind === "receita" && (
+            <label className="block text-xs font-bold">
+              Data recebida
+              <input
+                type="date"
+                value={paidDate}
+                onChange={(event) => setPaidDate(event.target.value)}
+                className="mt-1.5 w-full rounded-xl border bg-gray-50 p-3 text-sm font-normal"
+              />
+              <span className="mt-1 block font-normal text-slate-400">
+                Data efetiva em que o valor entrou, mesmo se foi após o vencimento.
+              </span>
+            </label>
           )}
           {converting && (
             <p className="rounded-xl bg-amber-50 p-3 text-xs font-bold text-amber-800">
@@ -2617,9 +2631,10 @@ function Entries({
                 <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-gray-400">
                   <span
                     className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-extrabold ${x.status === "previsto" && x.date < todayKey ? "bg-red-50 text-red-700" : "bg-slate-100 text-slate-800"}`}
-                    title={x.status === "previsto" && x.date < todayKey ? "Vencido e ainda não pago" : "Data de vencimento"}
+                    title={x.status === "previsto" && x.date < todayKey ? "Vencido e ainda não pago" : "Data prevista"}
                   >
                     <CalendarClock className="h-3.5 w-3.5" />
+                    {x.kind === "receita" && "Prevista: "}
                     {new Date(`${x.date}T12:00:00`).toLocaleDateString("pt-BR")}
                   </span>
                   <span>{x.unit} · {x.category} · {x.account}</span>
@@ -2684,6 +2699,16 @@ function Entries({
                       </p>
                     )}
                   </div>
+                )}
+                {x.kind === "receita" && x.paidDate && (
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    Data recebida: {new Date(`${x.paidDate}T12:00:00`).toLocaleDateString("pt-BR")}
+                    {lateDays(x) > 0 ? (
+                      <> · <b className="text-orange-600">{lateDays(x)} dia(s) de atraso</b></>
+                    ) : (
+                      " · em dia"
+                    )}
+                  </p>
                 )}
               </div>
               <div className="text-right">
@@ -3534,7 +3559,9 @@ function Reports({
                       {entry.installment && <span className="font-normal text-slate-400"> ({entry.installment})</span>}
                     </p>
                     <p className="truncate text-[11px] text-slate-400">
-                      <b className="text-xs font-extrabold text-slate-800">{dateLabel(entry.date)}</b> · {entry.unit} · {entry.category}
+                      <b className="text-xs font-extrabold text-slate-800">
+                        {entry.kind === "receita" && "Data prevista: "}{dateLabel(entry.date)}
+                      </b> · {entry.unit} · {entry.category}
                     </p>
                     {entry.beneficiary?.trim() && (
                       <p className="truncate text-[11px] text-slate-500">
@@ -3548,6 +3575,14 @@ function Reports({
                         {entry.paidDate && (lateDays(entry) > 0
                           ? <>Pago em {new Date(`${entry.paidDate}T12:00:00`).toLocaleDateString("pt-BR")} · <b className="text-orange-600">{lateDays(entry)} dia(s) de atraso</b></>
                           : <>Pago em dia</>)}
+                      </p>
+                    )}
+                    {entry.kind === "receita" && entry.paidDate && (
+                      <p className="text-[11px] text-slate-500">
+                        Data recebida: {new Date(`${entry.paidDate}T12:00:00`).toLocaleDateString("pt-BR")}
+                        {lateDays(entry) > 0 && (
+                          <> · <b className="text-orange-600">{lateDays(entry)} dia(s) de atraso</b></>
+                        )}
                       </p>
                     )}
                     {entry.attachments && entry.attachments.length > 0 && (
@@ -3609,6 +3644,10 @@ function App() {
     [editingCategory, setEditingCategory] = useState<Category | null>(null),
     [deletingCategory, setDeletingCategory] = useState<Category | null>(null),
     [editing, setEditing] = useState<Entry | null>(null),
+    [receiptEntry, setReceiptEntry] = useState<Entry | null>(null),
+    [receiptDate, setReceiptDate] = useState(""),
+    [receiptSaving, setReceiptSaving] = useState(false),
+    [receiptError, setReceiptError] = useState(""),
     [scopeDialog, setScopeDialog] = useState<{
       entry: Entry;
       action: "editar" | "excluir";
@@ -4274,6 +4313,17 @@ function App() {
       console.error("Fincore: falha ao atualizar contatos", error);
     }
   };
+  const persistSettlement = async (entry: Entry, effectiveDate?: string) => {
+    const becomingRealized = entry.status !== "realizado";
+    const updated: Entry = {
+      ...entry,
+      status: becomingRealized ? "realizado" : "previsto",
+      // Envia string vazia para limpar paid_date no banco ao reverter a baixa.
+      paidDate: becomingRealized ? effectiveDate || entry.paidDate || todayStr : "",
+    };
+    await saveRemoteEntries([updated]);
+    setEntries((old) => old.map((item) => (item.id === entry.id ? updated : item)));
+  };
   const save = async (
       data: Omit<Entry, "id">,
       scope: "one" | "series",
@@ -4304,6 +4354,8 @@ function App() {
         const seriesChanges = changedSeriesFields<Entry>(editing, data, [
           "date",
           "installment",
+          // Cada parcela tem sua própria data efetiva de pagamento ou recebimento.
+          "paidDate",
         ]);
         const updated = entries.map((x) =>
           (
@@ -4368,6 +4420,7 @@ function App() {
                 amount: parseMoney(part.amount),
                 date: dueDate,
                 status: monthIndex === 0 ? data.status : "previsto",
+                paidDate: monthIndex === 0 ? data.paidDate : "",
                 installments: 1,
                 installment: `${index + 1}/${monthParts.length}`,
               };
@@ -4397,6 +4450,7 @@ function App() {
           // Limita ao último dia do mês: 31/07 + 2 meses = 30/09 (não 01/10).
           date: addMonthsClamped(data.date, i),
           status: i === 0 ? data.status : "previsto",
+          paidDate: i === 0 ? data.paidDate : "",
           installments: 1,
           installment:
             data.installments > 1 ? `${i + 1}/${data.installments}` : undefined,
@@ -4408,18 +4462,13 @@ function App() {
       void refreshContacts();
     },
     settle = async (x: Entry) => {
-      const becomingPaid = x.status !== "realizado";
-      const updated = {
-        ...x,
-        status: becomingPaid ? "realizado" : "previsto",
-        // Em despesas, registra a data do pagamento ao dar baixa (se vazia)
-        // para medir o atraso; ao reverter, limpa a data.
-        ...(x.kind === "despesa"
-          ? { paidDate: becomingPaid ? x.paidDate || todayStr : undefined }
-          : {}),
-      } as Entry;
-      await saveRemoteEntries([updated]);
-      setEntries((old) => old.map((v) => (v.id === x.id ? updated : v)));
+      if (x.kind === "receita" && x.status === "previsto") {
+        setReceiptEntry(x);
+        setReceiptDate(todayStr);
+        setReceiptError("");
+        return;
+      }
+      await persistSettlement(x);
     },
     remove = async (x: Entry, scope: "one" | "series" = "one") => {
       const removed = entries.filter((v) =>
@@ -4560,6 +4609,23 @@ function App() {
       { id: "relatorios", text: "Relatórios", Icon: BarChart3 },
       { id: "usuarios", text: "Usuários", Icon: Menu },
     ];
+  const confirmReceipt = async () => {
+    if (!receiptEntry || receiptSaving) return;
+    if (!receiptDate || receiptDate > todayStr) {
+      setReceiptError("Informe uma data de recebimento válida, até hoje.");
+      return;
+    }
+    setReceiptSaving(true);
+    setReceiptError("");
+    try {
+      await persistSettlement(receiptEntry, receiptDate);
+      setReceiptEntry(null);
+    } catch (error) {
+      setReceiptError(error instanceof Error ? error.message : "Não foi possível confirmar o recebimento.");
+    } finally {
+      setReceiptSaving(false);
+    }
+  };
   return (
     <div className="flex h-screen overflow-hidden bg-[#f2f4f8]">
       <aside
@@ -5657,6 +5723,64 @@ function App() {
           save={save}
         />
       )}{" "}
+      {receiptEntry && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 p-4">
+          <form
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="receipt-dialog-title"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void confirmReceipt();
+            }}
+            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
+          >
+            <h2 id="receipt-dialog-title" className="text-xl font-bold text-slate-900">
+              Confirmar recebimento
+            </h2>
+            <p className="mt-2 text-sm text-slate-600">
+              Confira a data em que recebeu <strong>{receiptEntry.title}</strong> antes de dar baixa.
+            </p>
+            <p className="mt-3 text-sm text-slate-600">
+              Data prevista: <strong>{new Date(`${receiptEntry.date}T12:00:00`).toLocaleDateString("pt-BR")}</strong>
+            </p>
+            <label htmlFor="receipt-date" className="mt-5 block text-sm font-semibold text-slate-800">
+              Data recebida
+            </label>
+            <input
+              id="receipt-date"
+              type="date"
+              required
+              max={todayStr}
+              value={receiptDate}
+              onChange={(event) => {
+                setReceiptDate(event.target.value);
+                setReceiptError("");
+              }}
+              className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+              autoFocus
+            />
+            {receiptError && <p role="alert" className="mt-2 text-sm text-red-600">{receiptError}</p>}
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                disabled={receiptSaving}
+                onClick={() => setReceiptEntry(null)}
+                className="rounded-xl border border-slate-300 px-4 py-2.5 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={receiptSaving}
+                className="rounded-xl bg-blue-600 px-4 py-2.5 font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {receiptSaving ? "Salvando..." : "Confirmar baixa"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
       {scopeDialog && (
         <ScopeDialog
           action={scopeDialog.action}
