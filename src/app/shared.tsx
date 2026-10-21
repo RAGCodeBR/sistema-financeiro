@@ -1,8 +1,38 @@
+import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 // Utilitários de dinheiro e mês compartilhados entre as telas.
 export const fmt = (n: number) =>
   n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+// Valor em reais que "corre" até o número novo quando ele muda. Parte do valor
+// mostrado no momento, então trocar de filtro no meio da contagem não pula.
+// Quem prefere menos movimento no sistema vê o número final direto.
+export function CountUp({ value, duration = 600 }: { value: number; duration?: number }) {
+  const [shown, setShown] = useState(0);
+  const shownRef = useRef(0);
+  useEffect(() => {
+    const from = shownRef.current;
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (reduce || from === value) {
+      shownRef.current = value;
+      setShown(value);
+      return;
+    }
+    let frame = 0;
+    const start = performance.now();
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 4);
+      const next = t === 1 ? value : from + (value - from) * eased;
+      shownRef.current = next;
+      setShown(next);
+      if (t < 1) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [value, duration]);
+  return <span className="tabular-nums">{fmt(shown)}</span>;
+}
 export const parseMoney = (value: string) => {
   const raw = value.replace(/R\$\s?/gi, "").replace(/\s/g, "");
   if (!raw) return NaN;
@@ -37,7 +67,7 @@ export function CurrencyInput({
   const display = value && Number.isFinite(parsed) ? moneyInput(parsed) : "";
   return (
     <div className="relative mt-1.5">
-      <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm font-bold text-gray-400">
+      <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm font-medium text-gray-400">
         R$
       </span>
       <input
@@ -68,7 +98,7 @@ export function Month({ value, move }: { value: Date; move: (n: number) => void 
       >
         <ChevronLeft className="h-5 w-5" />
       </button>
-      <span className="min-w-40 text-center text-sm font-extrabold text-[#14213d]">
+      <span className="min-w-40 text-center text-sm font-semibold text-[#14213d]">
         {labelMonth(value)}
       </span>
       <button

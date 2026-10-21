@@ -97,7 +97,7 @@ export default function BanksSection({
     <section className="mt-5 rounded-2xl bg-white p-5 shadow-sm">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="font-extrabold text-slate-900">Bancos</h2>
+          <h2 className="font-semibold text-slate-900">Bancos</h2>
           <p className="text-xs text-gray-400">
             Bancos usados para pagar as despesas. Escolha o banco no lançamento da despesa.
           </p>
@@ -113,7 +113,7 @@ export default function BanksSection({
             />
             <button
               disabled={busy}
-              className="flex items-center gap-1 rounded-xl bg-blue-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
+              className="flex items-center gap-1 rounded-xl bg-blue-700 px-3 py-2 text-xs font-medium text-white disabled:opacity-50"
             >
               <Plus className="h-4 w-4" /> Cadastrar banco
             </button>
@@ -121,11 +121,11 @@ export default function BanksSection({
         )}
       </div>
       {!ready && (
-        <p className="rounded-xl bg-amber-50 p-3 text-xs font-bold text-amber-800">
+        <p className="rounded-xl bg-amber-50 p-3 text-xs font-medium text-amber-800">
           O cadastro de bancos ainda não está disponível no banco de dados. Rode `npx supabase db push` e recarregue a página.
         </p>
       )}
-      {error && <p role="alert" className="mb-3 rounded-xl bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>}
+      {error && <p role="alert" className="mb-3 rounded-xl bg-red-50 p-3 text-xs font-medium text-red-700">{error}</p>}
       {ready && (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {banks.map((bank) => (
@@ -147,12 +147,12 @@ export default function BanksSection({
                     className="w-full rounded-lg border bg-gray-50 px-2 py-1 text-sm"
                   />
                 ) : (
-                  <p className="truncate font-bold text-slate-800">{bank.name}</p>
+                  <p className="truncate font-medium text-slate-800">{bank.name}</p>
                 )}
                 <p className="text-[11px] text-slate-400">{usage[bank.id] ?? 0} despesa(s) vinculada(s)</p>
               </div>
               {canManage && (
-                <div className="flex shrink-0 gap-1 text-xs font-bold">
+                <div className="flex shrink-0 gap-1 text-xs font-medium">
                   {editingId === bank.id ? (
                     <>
                       <button type="button" disabled={busy} onClick={() => void rename(bank)} className="rounded px-1.5 py-1 text-blue-700 hover:bg-blue-50">Salvar</button>

@@ -184,7 +184,7 @@ export default function TeamNotesScreen() {
       <button
         type="button"
         onClick={() => void reactivate(member)}
-        className="flex items-center gap-1 rounded-lg border border-emerald-200 px-2 py-1.5 font-bold text-emerald-700 hover:bg-emerald-50"
+        className="flex items-center gap-1 rounded-lg border border-emerald-200 px-2 py-1.5 font-medium text-emerald-700 hover:bg-emerald-50"
       >
         Reativar
       </button>
@@ -192,18 +192,18 @@ export default function TeamNotesScreen() {
       <button
         type="button"
         onClick={() => setInactivating(member)}
-        className="flex items-center gap-1 rounded-lg border border-amber-200 px-2 py-1.5 font-bold text-amber-700 hover:bg-amber-50"
+        className="flex items-center gap-1 rounded-lg border border-amber-200 px-2 py-1.5 font-medium text-amber-700 hover:bg-amber-50"
       >
         Inativar
       </button>
     );
   const inactiveBadge = (member: TeamMember) =>
     member.inactive_from ? (
-      <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+      <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
         Inativo a partir de {shortMonth(member.inactive_from)}
       </span>
     ) : !member.active ? (
-      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">Inativo</span>
+      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">Inativo</span>
     ) : null;
   const upsertInvoice = (saved: TeamInvoice) =>
     setInvoices((old) => {
@@ -218,7 +218,7 @@ export default function TeamNotesScreen() {
       <div className="rounded-2xl bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="font-extrabold text-[#14213d]">Notas da equipe</h2>
+            <h2 className="font-semibold text-[#14213d]">Notas da equipe</h2>
             <p className="mt-1 text-xs text-gray-400">
               Controle mensal das notas fiscais dos colaboradores e prestadores de serviço.
             </p>
@@ -239,7 +239,7 @@ export default function TeamNotesScreen() {
               <button
                 type="button"
                 onClick={() => setMemberForm("new")}
-                className="flex items-center gap-1 rounded-xl bg-blue-700 px-3 py-2.5 text-xs font-bold text-white hover:bg-blue-800"
+                className="flex items-center gap-1 rounded-xl bg-blue-700 px-3 py-2.5 text-xs font-medium text-white hover:bg-blue-800"
               >
                 <Plus className="h-4 w-4" />
                 Novo colaborador
@@ -260,7 +260,7 @@ export default function TeamNotesScreen() {
               role="tab"
               aria-selected={tab === value}
               onClick={() => setTab(value)}
-              className={`-mb-px border-b-2 px-3 py-2 text-xs font-bold transition ${tab === value ? "border-blue-700 text-blue-700" : "border-transparent text-slate-500 hover:text-slate-800"}`}
+              className={`-mb-px border-b-2 px-3 py-2 text-xs font-medium transition ${tab === value ? "border-blue-700 text-blue-700" : "border-transparent text-slate-500 hover:text-slate-800"}`}
             >
               {label}
             </button>
@@ -268,7 +268,7 @@ export default function TeamNotesScreen() {
         </div>
 
         {loadError && (
-          <p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-xs font-bold text-red-700">{loadError}</p>
+          <p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-xs font-medium text-red-700">{loadError}</p>
         )}
 
         {tab === "notas" && (
@@ -281,8 +281,8 @@ export default function TeamNotesScreen() {
               onClick={() => setStatusFilter((current) => (current === status ? "todos" : status))}
               className={`rounded-xl border p-4 text-left transition hover:shadow-sm ${statusFilter === status ? "border-blue-400 ring-2 ring-blue-100" : ""}`}
             >
-              <p className="text-xs font-bold text-gray-500">{statusLabel[status]}s</p>
-              <p className={`mt-1 text-2xl font-extrabold ${status === "enviada" ? "text-emerald-600" : status === "atrasada" ? "text-red-600" : "text-slate-700"}`}>
+              <p className="text-xs font-medium text-gray-500">{statusLabel[status]}s</p>
+              <p className={`mt-1 text-2xl font-semibold ${status === "enviada" ? "text-emerald-600" : status === "atrasada" ? "text-red-600" : "text-slate-700"}`}>
                 {counts[status]}
               </p>
               <p className="mt-1 text-[11px] font-semibold text-blue-700">
@@ -291,8 +291,8 @@ export default function TeamNotesScreen() {
             </button>
           ))}
           <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
-            <p className="text-xs font-bold text-gray-500">Total em notas emitidas</p>
-            <p className="mt-1 text-2xl font-extrabold text-emerald-700">{fmt(monthTotal)}</p>
+            <p className="text-xs font-medium text-gray-500">Total em notas emitidas</p>
+            <p className="mt-1 text-2xl font-semibold text-emerald-700">{fmt(monthTotal)}</p>
             <p className="mt-1 text-[11px] font-semibold text-slate-500">
               {monthNotes.length} nota(s) em {competenceLabel(key)}
             </p>
@@ -316,7 +316,7 @@ export default function TeamNotesScreen() {
               {visibleRows.map(({ member, status, invoice }) => (
                 <tr key={member.id} className="hover:bg-slate-50">
                   <td className="p-3">
-                    <p className="font-bold text-slate-800">{member.name}</p>
+                    <p className="font-medium text-slate-800">{member.name}</p>
                     {categoryName(member.category_id) && (
                       <p className="text-[11px] font-semibold text-teal-700">{categoryName(member.category_id)}</p>
                     )}
@@ -326,7 +326,7 @@ export default function TeamNotesScreen() {
                   <td className="p-3 text-slate-600">{member.service || "—"}</td>
                   <td className="p-3 text-slate-600">dia {member.due_day}</td>
                   <td className="p-3">
-                    <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${statusStyle[status]}`}>
+                    <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${statusStyle[status]}`}>
                       {statusLabel[status]}
                     </span>
                     {invoice && !invoice.files.length && (
@@ -359,14 +359,14 @@ export default function TeamNotesScreen() {
                           <button
                             type="button"
                             onClick={() => setViewer({ member, invoice })}
-                            className="flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2 py-1.5 font-bold text-blue-700 hover:bg-blue-100"
+                            className="flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2 py-1.5 font-medium text-blue-700 hover:bg-blue-100"
                           >
                             <Eye className="h-3.5 w-3.5" /> Ver nota
                           </button>
                           <button
                             type="button"
                             onClick={() => setInvoiceForm({ member, invoice })}
-                            className="flex items-center gap-1 rounded-lg border px-2 py-1.5 font-bold text-slate-600 hover:bg-white"
+                            className="flex items-center gap-1 rounded-lg border px-2 py-1.5 font-medium text-slate-600 hover:bg-white"
                           >
                             <Pencil className="h-3.5 w-3.5" /> Editar nota
                           </button>
@@ -375,7 +375,7 @@ export default function TeamNotesScreen() {
                         <button
                           type="button"
                           onClick={() => setInvoiceForm({ member, invoice })}
-                          className="flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 font-bold text-white hover:bg-emerald-700"
+                          className="flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 font-medium text-white hover:bg-emerald-700"
                         >
                           <Plus className="h-3.5 w-3.5" /> {invoice ? "Anexar nota" : "Registrar nota"}
                         </button>
@@ -386,7 +386,7 @@ export default function TeamNotesScreen() {
                         onClick={() => setMemberForm(member)}
                         title="Editar colaborador"
                         aria-label={`Editar colaborador ${member.name}`}
-                        className="flex items-center gap-1 rounded-lg border px-2 py-1.5 font-bold text-blue-700 hover:bg-blue-50"
+                        className="flex items-center gap-1 rounded-lg border px-2 py-1.5 font-medium text-blue-700 hover:bg-blue-50"
                       >
                         <Pencil className="h-3.5 w-3.5" /> Colaborador
                       </button>
@@ -408,10 +408,10 @@ export default function TeamNotesScreen() {
             {visibleNoteCount > 0 && (
               <tfoot className="border-t-2 bg-slate-50">
                 <tr>
-                  <td colSpan={5} className="p-3 text-right text-xs font-bold text-slate-600">
+                  <td colSpan={5} className="p-3 text-right text-xs font-medium text-slate-600">
                     Total em notas emitidas{statusFilter !== "todos" ? " (filtro aplicado)" : ""} · {visibleNoteCount} nota(s)
                   </td>
-                  <td className="p-3 text-right text-sm font-extrabold text-emerald-700">{fmt(visibleTotal)}</td>
+                  <td className="p-3 text-right text-sm font-semibold text-emerald-700">{fmt(visibleTotal)}</td>
                   <td />
                 </tr>
               </tfoot>
@@ -434,10 +434,10 @@ export default function TeamNotesScreen() {
             {members.map((member) => (
               <div key={member.id} className="flex flex-wrap items-center justify-between gap-3 py-3 text-xs">
                 <div className="min-w-0">
-                  <p className="font-bold text-slate-800">
+                  <p className="font-medium text-slate-800">
                     {member.name}
                     {categoryName(member.category_id) && (
-                      <span className="ml-2 rounded-full bg-teal-50 px-2 py-0.5 text-[10px] font-bold text-teal-700">{categoryName(member.category_id)}</span>
+                      <span className="ml-2 rounded-full bg-teal-50 px-2 py-0.5 text-[10px] font-medium text-teal-700">{categoryName(member.category_id)}</span>
                     )}
                     {inactiveBadge(member) && <span className="ml-2">{inactiveBadge(member)}</span>}
                   </p>
@@ -446,9 +446,9 @@ export default function TeamNotesScreen() {
                   </p>
                 </div>
                 <div className="flex gap-1.5">
-                  <button type="button" onClick={() => setMemberForm(member)} className="rounded-lg border px-2 py-1.5 font-bold text-blue-700 hover:bg-blue-50">Editar</button>
+                  <button type="button" onClick={() => setMemberForm(member)} className="rounded-lg border px-2 py-1.5 font-medium text-blue-700 hover:bg-blue-50">Editar</button>
                   {inactiveButton(member)}
-                  <button type="button" onClick={() => setDeletingMember(member)} className="rounded-lg border border-red-200 px-2 py-1.5 font-bold text-red-600 hover:bg-red-50">Excluir</button>
+                  <button type="button" onClick={() => setDeletingMember(member)} className="rounded-lg border border-red-200 px-2 py-1.5 font-medium text-red-600 hover:bg-red-50">Excluir</button>
                 </div>
               </div>
             ))}
@@ -536,7 +536,7 @@ function Modal({ title, subtitle, close, children }: { title: string; subtitle?:
       <div className="flex max-h-[94vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
         <header className="flex items-start justify-between border-b px-6 py-4">
           <div className="min-w-0">
-            <h2 className="truncate font-extrabold text-[#14213d]">{title}</h2>
+            <h2 className="truncate font-semibold text-[#14213d]">{title}</h2>
             {subtitle && <p className="mt-1 text-xs text-slate-500">{subtitle}</p>}
           </div>
           <button type="button" onClick={close} aria-label="Fechar"><X className="h-5 w-5" /></button>
@@ -608,11 +608,11 @@ function MemberForm({
     <Modal title={member ? "Editar colaborador" : "Novo colaborador"} subtitle="Quem precisa enviar nota fiscal todo mês." close={close}>
       <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
         <div className="space-y-4 overflow-y-auto p-6">
-          <label className="block text-xs font-bold text-slate-700">Nome
+          <label className="block text-xs font-medium text-slate-700">Nome
             <input required minLength={2} maxLength={120} value={name} onChange={(e) => setName(e.target.value)} className={inputClass} placeholder="Ex.: Igor Ourciolo" />
           </label>
           {categoriesReady && (
-            <label className="block text-xs font-bold text-slate-700">Categoria
+            <label className="block text-xs font-medium text-slate-700">Categoria
               <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={inputClass}>
                 <option value="">Sem categoria</option>
                 {categories.map((category) => (
@@ -624,36 +624,36 @@ function MemberForm({
               )}
             </label>
           )}
-          <label className="block text-xs font-bold text-slate-700">Serviço prestado
+          <label className="block text-xs font-medium text-slate-700">Serviço prestado
             <input value={service} onChange={(e) => setService(e.target.value)} className={inputClass} placeholder="Ex.: Consultoria contábil" />
           </label>
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block text-xs font-bold text-slate-700">CPF / CNPJ (opcional)
+            <label className="block text-xs font-medium text-slate-700">CPF / CNPJ (opcional)
               <input value={document} onChange={(e) => setDocument(e.target.value)} className={inputClass} />
             </label>
-            <label className="block text-xs font-bold text-slate-700">E-mail (opcional)
+            <label className="block text-xs font-medium text-slate-700">E-mail (opcional)
               <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={inputClass} />
             </label>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block text-xs font-bold text-slate-700">Valor esperado (opcional)
+            <label className="block text-xs font-medium text-slate-700">Valor esperado (opcional)
               <CurrencyInput value={expected} onChange={setExpected} required={false} />
             </label>
-            <label className="block text-xs font-bold text-slate-700">Dia limite de envio
+            <label className="block text-xs font-medium text-slate-700">Dia limite de envio
               <input required type="number" min={1} max={31} value={dueDay} onChange={(e) => setDueDay(e.target.value)} className={inputClass} />
             </label>
           </div>
-          <label className="block text-xs font-bold text-slate-700">Inativo a partir de (opcional)
+          <label className="block text-xs font-medium text-slate-700">Inativo a partir de (opcional)
             <input type="month" min={TEAM_NOTES_START} value={inactiveFrom} onChange={(e) => setInactiveFrom(e.target.value)} className={inputClass} />
             <span className="mt-1 block font-normal text-slate-400">
               Vazio = ativo, espera nota todo mês. Com um mês, deixa de ser cobrado a partir dele (as notas antigas ficam guardadas).
             </span>
           </label>
-          {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>}
+          {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-xs font-medium text-red-700">{error}</p>}
         </div>
         <footer className="flex gap-3 border-t bg-gray-50 px-6 py-4">
-          <button type="button" onClick={close} className="flex-1 rounded-xl border py-2.5 text-sm font-bold">Cancelar</button>
-          <button disabled={busy} className="flex-1 rounded-xl bg-blue-700 py-2.5 text-sm font-bold text-white disabled:opacity-50">{busy ? "Salvando…" : "Salvar"}</button>
+          <button type="button" onClick={close} className="flex-1 rounded-xl border py-2.5 text-sm font-medium">Cancelar</button>
+          <button disabled={busy} className="flex-1 rounded-xl bg-blue-700 py-2.5 text-sm font-medium text-white disabled:opacity-50">{busy ? "Salvando…" : "Salvar"}</button>
         </footer>
       </form>
     </Modal>
@@ -843,32 +843,32 @@ function InvoiceForm({
       <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
         <div className="space-y-4 overflow-y-auto p-6">
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block text-xs font-bold text-slate-700">Mês de controle
+            <label className="block text-xs font-medium text-slate-700">Mês de controle
               <input required type="month" value={referenceMonth} onChange={(e) => setReferenceMonth(e.target.value)} className={inputClass} />
               <span className="mt-1 block font-normal text-slate-400">Mês em que a nota aparece e conta como enviada.</span>
             </label>
-            <label className="block text-xs font-bold text-slate-700">Competência (mês do serviço)
+            <label className="block text-xs font-medium text-slate-700">Competência (mês do serviço)
               <input required type="month" value={competence} onChange={(e) => setCompetence(e.target.value)} className={inputClass} />
               <span className="mt-1 block font-normal text-slate-400">Só informativo: pode ser de outro mês.</span>
             </label>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block text-xs font-bold text-slate-700">Nº da nota
+            <label className="block text-xs font-medium text-slate-700">Nº da nota
               <input value={number} onChange={(e) => setNumber(e.target.value)} className={inputClass} placeholder="Ex.: 1234" />
             </label>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block text-xs font-bold text-slate-700">Valor da nota
+            <label className="block text-xs font-medium text-slate-700">Valor da nota
               <CurrencyInput value={amount} onChange={setAmount} required={false} />
             </label>
-            <label className="block text-xs font-bold text-slate-700">Data de emissão
+            <label className="block text-xs font-medium text-slate-700">Data de emissão
               <input type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} className={inputClass} />
             </label>
           </div>
-          <label className="block text-xs font-bold text-slate-700">Observações
+          <label className="block text-xs font-medium text-slate-700">Observações
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className={inputClass} rows={2} />
           </label>
-          <div className="text-xs font-bold text-slate-700">
+          <div className="text-xs font-medium text-slate-700">
             Arquivo da nota (PDF, PNG ou JPG)
             <div className="mt-1.5 space-y-2">
               {existing.map((path) => (
@@ -881,7 +881,7 @@ function InvoiceForm({
                       setExisting((old) => old.filter((item) => item !== path));
                       setRemovedFiles((old) => [...old, path]);
                     }}
-                    className="rounded px-1.5 py-0.5 font-bold text-red-600 hover:bg-red-50"
+                    className="rounded px-1.5 py-0.5 font-medium text-red-600 hover:bg-red-50"
                   >
                     Remover
                   </button>
@@ -894,7 +894,7 @@ function InvoiceForm({
                   <button
                     type="button"
                     onClick={() => setNewFiles((old) => old.filter((_, i) => i !== index))}
-                    className="rounded px-1.5 py-0.5 font-bold text-red-600 hover:bg-red-50"
+                    className="rounded px-1.5 py-0.5 font-medium text-red-600 hover:bg-red-50"
                   >
                     Remover
                   </button>
@@ -935,16 +935,16 @@ function InvoiceForm({
               </label>
             </div>
           </div>
-          {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>}
+          {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-xs font-medium text-red-700">{error}</p>}
         </div>
         <footer className="flex flex-wrap gap-3 border-t bg-gray-50 px-6 py-4">
           {invoice && (
-            <button type="button" disabled={busy} onClick={() => void deleteInvoice()} className="flex items-center gap-1 rounded-xl border border-red-200 px-3 py-2.5 text-sm font-bold text-red-600 disabled:opacity-50">
+            <button type="button" disabled={busy} onClick={() => void deleteInvoice()} className="flex items-center gap-1 rounded-xl border border-red-200 px-3 py-2.5 text-sm font-medium text-red-600 disabled:opacity-50">
               <Trash2 className="h-4 w-4" /> Excluir
             </button>
           )}
-          <button type="button" onClick={close} className="flex-1 rounded-xl border py-2.5 text-sm font-bold">Cancelar</button>
-          <button disabled={busy} className="flex-1 rounded-xl bg-blue-700 py-2.5 text-sm font-bold text-white disabled:opacity-50">{busy ? "Salvando…" : "Salvar nota"}</button>
+          <button type="button" onClick={close} className="flex-1 rounded-xl border py-2.5 text-sm font-medium">Cancelar</button>
+          <button disabled={busy} className="flex-1 rounded-xl bg-blue-700 py-2.5 text-sm font-medium text-white disabled:opacity-50">{busy ? "Salvando…" : "Salvar nota"}</button>
         </footer>
       </form>
     </Modal>
@@ -997,17 +997,17 @@ function InvoiceViewer({ member, invoice, close, edit }: { member: TeamMember; i
       >
         <header className="flex flex-wrap items-start justify-between gap-3 border-b px-6 py-4">
           <div className="min-w-0">
-            <h2 className="truncate font-extrabold text-[#14213d]">Nota de {member.name}</h2>
+            <h2 className="truncate font-semibold text-[#14213d]">Nota de {member.name}</h2>
             <p className="mt-0.5 text-xs text-slate-500">{details}</p>
             {invoice.notes && <p className="mt-0.5 text-xs text-slate-400">{invoice.notes}</p>}
           </div>
           <div className="flex items-center gap-2">
             {selected && (
-              <button type="button" onClick={() => void download()} className="flex items-center gap-1 rounded-xl border px-3 py-2 text-xs font-bold text-slate-700 hover:bg-gray-50">
+              <button type="button" onClick={() => void download()} className="flex items-center gap-1 rounded-xl border px-3 py-2 text-xs font-medium text-slate-700 hover:bg-gray-50">
                 <Download className="h-4 w-4" /> Baixar
               </button>
             )}
-            <button type="button" onClick={edit} className="flex items-center gap-1 rounded-xl bg-blue-700 px-3 py-2 text-xs font-bold text-white hover:bg-blue-800">
+            <button type="button" onClick={edit} className="flex items-center gap-1 rounded-xl bg-blue-700 px-3 py-2 text-xs font-medium text-white hover:bg-blue-800">
               <Pencil className="h-4 w-4" /> Editar
             </button>
             <button type="button" onClick={close} aria-label="Fechar" className="rounded-lg p-1.5 hover:bg-gray-100"><X className="h-5 w-5" /></button>
@@ -1020,7 +1020,7 @@ function InvoiceViewer({ member, invoice, close, edit }: { member: TeamMember; i
                 key={path}
                 type="button"
                 onClick={() => setSelected(path)}
-                className={`flex max-w-[220px] items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-bold ${selected === path ? "bg-[#14213d] text-white" : "border bg-white text-slate-600"}`}
+                className={`flex max-w-[220px] items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-medium ${selected === path ? "bg-[#14213d] text-white" : "border bg-white text-slate-600"}`}
               >
                 <FileText className="h-3.5 w-3.5 shrink-0" />
                 <span className="truncate">{fileLabel(path)}</span>
@@ -1032,10 +1032,10 @@ function InvoiceViewer({ member, invoice, close, edit }: { member: TeamMember; i
           {!selected ? (
             <div className="text-center text-sm text-slate-500">
               <p>Esta nota não tem arquivo anexado.</p>
-              <button type="button" onClick={edit} className="mt-3 rounded-xl bg-blue-700 px-4 py-2 text-xs font-bold text-white">Anexar arquivo</button>
+              <button type="button" onClick={edit} className="mt-3 rounded-xl bg-blue-700 px-4 py-2 text-xs font-medium text-white">Anexar arquivo</button>
             </div>
           ) : error ? (
-            <p className="rounded-xl bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>
+            <p className="rounded-xl bg-red-50 p-3 text-xs font-medium text-red-700">{error}</p>
           ) : !url ? (
             <p className="text-sm text-slate-500">Carregando arquivo…</p>
           ) : isPdf(selected) ? (
@@ -1069,10 +1069,10 @@ function ConfirmDeleteMember({
           O colaborador será removido junto com <b>{invoiceCount} nota(s)</b> registrada(s) e os arquivos anexados.
         </p>
         <p className="text-xs text-slate-400">Se ele só parou de prestar serviço, use o botão “Inativar” para manter o histórico das notas.</p>
-        {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>}
+        {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-xs font-medium text-red-700">{error}</p>}
       </div>
       <footer className="flex gap-3 border-t bg-gray-50 px-6 py-4">
-        <button type="button" onClick={close} className="flex-1 rounded-xl border py-2.5 text-sm font-bold">Cancelar</button>
+        <button type="button" onClick={close} className="flex-1 rounded-xl border py-2.5 text-sm font-medium">Cancelar</button>
         <button
           type="button"
           disabled={busy}
@@ -1087,7 +1087,7 @@ function ConfirmDeleteMember({
               setBusy(false);
             }
           }}
-          className="flex-1 rounded-xl bg-red-600 py-2.5 text-sm font-bold text-white disabled:opacity-50"
+          className="flex-1 rounded-xl bg-red-600 py-2.5 text-sm font-medium text-white disabled:opacity-50"
         >
           {busy ? "Excluindo…" : "Excluir"}
         </button>
@@ -1173,7 +1173,7 @@ function CategoriesPanel({
   };
   if (!ready)
     return (
-      <p className="mt-4 rounded-xl bg-amber-50 p-3 text-xs font-bold text-amber-800">
+      <p className="mt-4 rounded-xl bg-amber-50 p-3 text-xs font-medium text-amber-800">
         As categorias ainda não estão disponíveis no banco de dados. Rode `npx supabase db push` e recarregue a página.
       </p>
     );
@@ -1187,11 +1187,11 @@ function CategoriesPanel({
           maxLength={80}
           className="w-full max-w-sm rounded-xl border bg-gray-50 px-3 py-2 text-sm"
         />
-        <button disabled={busy} className="flex items-center gap-1 rounded-xl bg-blue-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">
+        <button disabled={busy} className="flex items-center gap-1 rounded-xl bg-blue-700 px-3 py-2 text-xs font-medium text-white disabled:opacity-50">
           <Plus className="h-4 w-4" /> Cadastrar categoria
         </button>
       </form>
-      {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>}
+      {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-xs font-medium text-red-700">{error}</p>}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {categories.map((category) => (
           <article key={category.id} className="flex items-center gap-3 rounded-xl border p-4">
@@ -1212,11 +1212,11 @@ function CategoriesPanel({
                   className="w-full rounded-lg border bg-gray-50 px-2 py-1 text-sm"
                 />
               ) : (
-                <p className="truncate font-bold text-slate-800">{category.name}</p>
+                <p className="truncate font-medium text-slate-800">{category.name}</p>
               )}
               <p className="text-[11px] text-slate-400">{countFor(category.id)} colaborador(es)</p>
             </div>
-            <div className="flex shrink-0 gap-1 text-xs font-bold">
+            <div className="flex shrink-0 gap-1 text-xs font-medium">
               {editingId === category.id ? (
                 <>
                   <button type="button" disabled={busy} onClick={() => void rename(category)} className="rounded px-1.5 py-1 text-blue-700 hover:bg-blue-50">Salvar</button>
@@ -1287,7 +1287,7 @@ function InactivateDialog({
     <Modal title={`Inativar ${member.name}`} subtitle="As notas já registradas continuam guardadas." close={close}>
       <form onSubmit={submit}>
         <div className="space-y-4 p-6">
-          <label className="block text-xs font-bold text-slate-700">Inativo a partir de
+          <label className="block text-xs font-medium text-slate-700">Inativo a partir de
             <input required type="month" min={TEAM_NOTES_START} value={from} onChange={(e) => setFrom(e.target.value)} className={inputClass} />
           </label>
           {/^\d{4}-\d{2}$/.test(from) && (
@@ -1296,11 +1296,11 @@ function InactivateDialog({
               pendente ou atrasado. Os meses anteriores e as notas já registradas continuam normalmente.
             </p>
           )}
-          {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>}
+          {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-xs font-medium text-red-700">{error}</p>}
         </div>
         <footer className="flex gap-3 border-t bg-gray-50 px-6 py-4">
-          <button type="button" onClick={close} className="flex-1 rounded-xl border py-2.5 text-sm font-bold">Cancelar</button>
-          <button disabled={busy} className="flex-1 rounded-xl bg-amber-600 py-2.5 text-sm font-bold text-white disabled:opacity-50">
+          <button type="button" onClick={close} className="flex-1 rounded-xl border py-2.5 text-sm font-medium">Cancelar</button>
+          <button disabled={busy} className="flex-1 rounded-xl bg-amber-600 py-2.5 text-sm font-medium text-white disabled:opacity-50">
             {busy ? "Salvando…" : "Inativar"}
           </button>
         </footer>
