@@ -28,6 +28,9 @@ import { filterEntriesByPeriodAndText, normalizeEntrySearch } from "../lib/entry
 import { CountUp, CurrencyInput, Month, fmt, labelMonth, moneyInput, parseMoney } from "./shared";
 import TeamNotesScreen from "./TeamNotes";
 import BanksSection from "./Banks";
+import CardStatements from "./CardStatements";
+import { confirmRemoteCardStatement, loadRemoteCardItems } from "../lib/cardImportRemote";
+import { sourceKeyString } from "../lib/cardImport";
 import { snapshotFile, unreadableFileMessage } from "../lib/files";
 import { exportFinanceExcel, exportFinancePdf, exportPeriodRange, exportViewLabels, filterFinanceEntries, summarizeEntries, type ExportPeriod, type ExportView, type FinanceExport } from "../lib/financeExport";
 import {
@@ -107,6 +110,11 @@ type Entry = {
   paidDate?: string;
   discount?: number;
   bankId?: string | null;
+  nature?: "PF" | "PJ";
+  purchaseDate?: string;
+  cardLast4?: string;
+  cardKey?: string;
+  cardSourceKey?: string;
 };
 // Valor que efetivamente saiu/entrou: numa despesa já paga, soma os juros e
 // abate o desconto.
@@ -155,6 +163,7 @@ const toggleableScreens: { id: string; label: string }[] = [
   { id: "dashboard", label: "Dashboard" },
   { id: "lancamentos", label: "Lançamentos" },
   { id: "contas", label: "Contas" },
+  { id: "faturas", label: "Cartões e faturas" },
   { id: "categorias", label: "Plano de contas" },
   { id: "contatos", label: "Fornecedores/clientes" },
   { id: "relatorios", label: "Relatórios" },
@@ -1357,7 +1366,7 @@ function EntryForm({
   // editar "Toda a série" (senão o valor de um mês seria copiado para todos).
   // Editar um lançamento avulso e escolher dividir, parcelar ou recorrente
   // transforma-o numa série nova que substitui o original ao salvar.
-  const standaloneEdit = Boolean(editing && !editing.seriesId);
+  const standaloneEdit = Boolean(editing && !editing.seriesId && !editing.cardSourceKey);
   const converting =
     standaloneEdit && (recurrence || installments > 1 || sameMonthInstallments);
   const showPaidValue =
@@ -1586,7 +1595,7 @@ function EntryForm({
           </button>
         </header>
         <div className="space-y-5 p-6">
-          {allowIncome && (
+          {allowIncome && !editing?.cardSourceKey && (
           <div className="grid grid-cols-2 overflow-hidden rounded-xl border text-sm font-medium">
             <button
               type="button"
@@ -1934,6 +1943,7 @@ function EntryForm({
               <input
                 type="checkbox"
                 checked={recurrence}
+                disabled={Boolean(editing?.cardSourceKey)}
                 onChange={(e) => {
                   setRecurrence(e.target.checked);
                   if (e.target.checked) setInstallments(1);
@@ -1942,6 +1952,7 @@ function EntryForm({
               <Repeat2 className="h-4 w-4 text-blue-600" />
               Recorrente mensal
             </label>
+            {editing?.cardSourceKey && <p className="col-span-full text-xs text-blue-700">{editing.installment ? `Parcela ${editing.installment} importada da fatura. ` : "Despesa importada da fatura. "}As próximas parcelas serão registradas pelas próximas faturas, sem gerar uma nova série ao editar.</p>}
             {!recurrence && !sameMonthInstallments && (!editing || standaloneEdit) && (
               <label className="flex items-center gap-2 text-sm font-medium">
                 <CalendarClock className="h-4 w-4 text-blue-600" />
@@ -2113,7 +2124,7 @@ function EntryForm({
                 definidos acima.
               </p>
             )}
-            {!recurrence && installments > 1 && (
+            {!editing?.cardSourceKey && !recurrence && installments > 1 && (
               <p className="col-span-full text-xs text-blue-700">
                 Lançamento com fim: {installments} parcelas mensais de{" "}
                 {fmt((parseMoney(amount) || 0) / installments)}.
@@ -4128,6 +4139,8 @@ function App() {
           paidDate: row.paid_date || undefined,
           discount: row.discount != null ? Number(row.discount) : undefined,
           bankId: row.bank_id === undefined ? undefined : row.bank_id,
+          nature: row.expense_nature, purchaseDate: row.purchase_date, cardLast4: row.card_last4, cardKey: row.card_key,
+          cardSourceKey: row.card_source_key ? sourceKeyString(row.card_source_key) : undefined,
         })) as Entry[];
         // The new registry has its own migration. Until it is applied, the
         // old production database and existing launches must remain readable.
@@ -4223,6 +4236,8 @@ function App() {
             paidDate: row.paid_date || undefined,
             discount: row.discount != null ? Number(row.discount) : undefined,
             bankId: row.bank_id === undefined ? undefined : row.bank_id,
+            nature: row.expense_nature, purchaseDate: row.purchase_date, cardLast4: row.card_last4, cardKey: row.card_key,
+            cardSourceKey: row.card_source_key ? sourceKeyString(row.card_source_key) : undefined,
           })) as Entry[]);
         }
       } catch (error) {
@@ -4246,6 +4261,7 @@ function App() {
     if (!currentUser) return true;
     if (currentUser.role === "master") return true;
     if (id === "usuarios") return false;
+    if (id === "faturas") return !(currentUser.hiddenScreens ?? []).some(screen => screen === "faturas" || screen === "lancamentos");
     if (id === "relatorios" && !currentUser.canViewReports) return false;
     // Aba opcional: só aparece para quem foi liberado (além do Master).
     if (id === "notas") return currentUser.canViewTeamNotes;
@@ -4672,6 +4688,7 @@ function App() {
       const replaced =
         editing &&
         !editing.seriesId &&
+        !editing.cardSourceKey &&
         (Boolean(monthParts?.length) || data.recurrence === "mensal" || data.installments > 1)
           ? editing
           : null;
@@ -4941,6 +4958,7 @@ function App() {
       { id: "dashboard", text: "Dashboard", Icon: LayoutDashboard },
       { id: "lancamentos", text: "Lançamentos", Icon: ReceiptText },
       { id: "contas", text: "Contas", Icon: Wallet },
+      { id: "faturas", text: "Cartões e faturas", Icon: CreditCard },
       { id: "categorias", text: "Plano de contas", Icon: Tag },
       { id: "contatos", text: "Fornecedores/clientes", Icon: Building2 },
       { id: "notas", text: "Notas da equipe", Icon: FileText },
@@ -5081,6 +5099,8 @@ function App() {
                   ? "Dashboard Financeiro"
                   : screen === "contas"
                     ? "Contas"
+                  : screen === "faturas"
+                    ? "Cartões e faturas"
                     : screen === "categorias"
                       ? "Plano de contas"
                       : screen === "contatos"
@@ -5586,6 +5606,21 @@ function App() {
               setBanks={setBanks}
             />
             </>
+          ) : screen === "faturas" ? (
+            <CardStatements
+              entries={entries.filter(entry => entry.kind === "despesa" && allowedUnits.some(unit => unit.name === entry.unit))}
+              centers={allowedUnits.map(unit => unit.name)}
+              categories={categories.filter(category => category.kind === "despesa" && allowedUnits.some(unit => unit.name === category.unit))}
+              comparisonReady={dataReady && !dataError}
+              storageScope={currentUser.id}
+              loadApplied={loadRemoteCardItems}
+              onConfirm={async payload => {
+                const result = await confirmRemoteCardStatement(payload);
+                const observed = [...(result.existingEntries || []), ...result.createdEntries];
+                setEntries(previous => [...previous.filter(entry => !observed.some(item => item.id === entry.id)), ...observed]);
+                return result;
+              }}
+            />
           ) : screen === "contatos" ? (
             <ContactsScreen
               contacts={contacts}

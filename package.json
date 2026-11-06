@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
-    "dev": "vite"
+    "dev": "vite",
+    "dev:faturas": "vite --host 127.0.0.1 --port 5173 --strictPort --open /?preview=faturas"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
@@ -53,6 +54,7 @@
     "lucide-react": "0.487.0",
     "motion": "12.23.24",
     "next-themes": "0.4.6",
+    "pdfjs-dist": "^6.5.438",
     "react-day-picker": "8.10.1",
     "react-dnd": "16.0.1",
     "react-dnd-html5-backend": "16.0.1",
@@ -69,6 +71,7 @@
     "vaul": "1.1.2"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.15",
     "@tailwindcss/vite": "4.1.12",
     "@vitejs/plugin-react": "4.7.0",
     "supabase": "^2.119.0",
