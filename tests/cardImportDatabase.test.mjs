@@ -23,7 +23,10 @@ before(async () => {
   let schema = await readFile(new URL("../supabase/schema.sql", import.meta.url), "utf8");
   schema = schema.replace("create extension if not exists pgcrypto;", "");
   await db.exec(schema);
-  for (const name of ["20261005190000_counterparties.sql", "20261006150000_expense_interest.sql", "20261106190000_card_statement_import.sql", "20261106210000_card_refund_reviews.sql"]) await db.exec(await readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), "utf8"));
+  for (const name of ["20261005190000_counterparties.sql", "20261006150000_expense_interest.sql", "20261106190000_card_statement_import.sql", "20261106210000_card_refund_reviews.sql", "20261107120000_card_import_permissions.sql"]) {
+    if (name === "20261106190000_card_statement_import.sql") await db.exec("alter default privileges in schema public grant all on tables to authenticated, anon");
+    await db.exec(await readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), "utf8"));
+  }
   await db.query("insert into auth.users(id,email) values($1,'one@example.test'),($2,'two@example.test')", [userId, otherId]);
   await db.query("update public.profiles set allowed_units = array['Consultoria'] where id = $1", [userId]);
   await db.query("update public.profiles set allowed_units = array['Marketing'] where id = $1", [otherId]);
@@ -138,6 +141,15 @@ test("import ledger is protected from direct writes and hidden across unauthoriz
   await db.query("select set_config('request.jwt.claim.sub',$1,false)", [otherId]);
   assert.equal((await db.query("select * from public.card_import_items")).rows.length, 0);
   await assert.rejects(confirm(payload()), /sem acesso/);
+});
+test("Supabase default grants cannot expose or truncate the import ledger", async () => {
+  await reset();
+  for (const table of ["card_import_statements", "card_import_items", "card_refund_reviews", "card_refund_events"]) {
+    const privileges = (await db.query(`select has_table_privilege('anon',$1,'SELECT') as anon_read, has_table_privilege('authenticated',$1,'SELECT') as auth_read,
+      has_table_privilege('authenticated',$1,'INSERT,UPDATE,DELETE,TRUNCATE,TRIGGER,REFERENCES') as auth_write`, [`public.${table}`])).rows[0];
+    assert.deepEqual(privileges, { anon_read: false, auth_read: true, auth_write: false });
+    await assert.rejects(db.exec(`truncate public.${table} cascade`), /permission denied/);
+  }
 });
 
 const refundKey = (s = statement(), index = 0) => JSON.parse(identifyStatement(s).transactions[index].sourceKey);

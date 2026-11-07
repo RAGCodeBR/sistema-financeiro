@@ -150,6 +150,11 @@ ser aplicadas em ordem. Sem a segunda, a conferência existente continua
 funcionando, mas o formulário de estorno informa que a integração precisa ser
 habilitada e não afirma ter encerrado uma ocorrência no servidor.
 
+`supabase/migrations/20261107120000_card_import_permissions.sql` restringe as
+permissões das tabelas de importação à leitura autenticada, inclusive em
+projetos que concedem ALL por padrão a novas tabelas públicas. A escrita
+permanece nas funções autenticadas; TRUNCATE direto também é revogado.
+
 `confirm_card_statement` valida totais, identidade de origem, classificação,
 acesso ao centro, categoria, vínculos e compensações no servidor. Uma trava
 por cartão/ciclo e restrições únicas tornam a operação idempotente. Todos os
