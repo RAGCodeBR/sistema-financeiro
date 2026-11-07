@@ -196,6 +196,15 @@
 .cs-card-selectors label { font-size: 10px; color: #7b8da7; }
 .cs-card-selectors select { display: block; width: 100%; margin-top: 6px; padding: 9px 10px; border: 1px solid #dce5f2; border-radius: 6px; background: #fff; color: #536d91; font-size: 11px; text-overflow: ellipsis; }
 .cs-card-selectors small { grid-column: 1 / -1; font-size: 10px; color: #97a6bb; }
+.cs-statement-actions { display: flex; justify-content: flex-end; margin: -7px 0 15px; }
+.cs-statement-actions .cs-button { min-height: 32px; font-size: 11px; padding: 6px 10px; }
+.cs-remove-file { display: flex; gap: 12px; align-items: center; padding: 13px; margin-bottom: 18px; background: #f5f7fb; border-radius: 7px; }
+.cs-remove-file > svg { flex-shrink: 0; color: #7b8da7; }
+.cs-remove-file > div { min-width: 0; }
+.cs-remove-file strong { display: block; overflow-wrap: anywhere; }
+.cs-remove-file span { display: block; font-size: 11px; color: var(--cs-muted); margin-top: 4px; }
+.cs-remove-dialog p { color: #60718a; line-height: 1.7; margin-bottom: 12px; }
+.cs-remove-dialog p strong { color: var(--cs-ink); }
 .cs-workspace-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
 .cs-workspace-tabs button { display: inline-flex; align-items: center; gap: 6px; padding: 9px 13px; border: 1px solid #e0e7f1; border-radius: 6px; background: white; font-size: 11px; color: #8595ad; }
 .cs-workspace-tabs button.cs-workspace-tab-active { color: #3973cd; background: #edf4ff; border-color: #cddff8; }

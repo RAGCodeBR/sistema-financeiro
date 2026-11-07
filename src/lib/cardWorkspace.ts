@@ -1,7 +1,7 @@
 import type { CardStatement } from "./cardStatement";
 import type { AppliedStatementItem, StatementImportEntry } from "./cardImport";
 
-export type CardWorkspace = { version: 1; statements: CardStatement[]; entries: StatementImportEntry[]; applied: AppliedStatementItem[]; activeFingerprint: string };
+export type CardWorkspace = { version: 1; statements: CardStatement[]; entries: StatementImportEntry[]; applied: AppliedStatementItem[]; activeFingerprint: string; exampleDismissed?: boolean };
 export const emptyCardWorkspace = (): CardWorkspace => ({ version: 1, statements: [], entries: [], applied: [], activeFingerprint: "" });
 const key = (scope: string) => `fincore.cards.workspace.v1.${scope}`;
 export function readCardWorkspace(scope: string): CardWorkspace {
@@ -41,6 +41,16 @@ export async function cachedStatementFile(scope: string, fingerprint: string): P
       const request = db.transaction("files").objectStore("files").get(`${scope}:${fingerprint}`);
       request.onsuccess = () => resolve(request.result instanceof Blob ? new File([request.result], request.result instanceof File ? request.result.name : "fatura.pdf", { type: "application/pdf" }) : null);
       request.onerror = () => reject(request.error);
+    });
+  } finally { db.close(); }
+}
+export async function removeStatementFile(scope: string, fingerprint: string) {
+  const db = await database();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("files", "readwrite");
+      tx.objectStore("files").delete(`${scope}:${fingerprint}`);
+      tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error);
     });
   } finally { db.close(); }
 }

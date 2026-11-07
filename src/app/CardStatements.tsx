@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, ArrowDownLeft, ArrowRight, Building2, Check, CheckCircle2, ChevronLeft, ChevronRight, CircleHelp, CreditCard, Download, FileCheck2, FileText, FolderOpen, History, Landmark, LoaderCircle, LockKeyhole, ReceiptText, Search, ShieldQuestion, Upload, UserRound, X } from "lucide-react";
+import { AlertCircle, ArrowDownLeft, ArrowRight, Building2, Check, CheckCircle2, ChevronLeft, ChevronRight, CircleHelp, CreditCard, Download, FileCheck2, FileText, FolderOpen, History, Landmark, LoaderCircle, LockKeyhole, ReceiptText, Search, ShieldQuestion, Trash2, Upload, UserRound, X } from "lucide-react";
 import { currentTransactions, emptyDecision, normalizeStatementText, reconcileStatement, reviewIsComplete, type CardStatement, type ComparisonEntry, type Reconciliation, type ReviewDecision, type StatementTransaction } from "../lib/cardStatement";
 import { readStatementPdf } from "../lib/readStatementPdf";
 import { readComparisonExcel } from "../lib/readComparison";
 import { buildStatementImportPlan, createLocalStatementEntries, identifyStatement, importPayload, statementCardKey, type AppliedStatementItem, type ConfirmStatementPayload, type ConfirmStatementResult, type StatementReviewState } from "../lib/cardImport";
-import { cacheStatementFile, cachedStatementFile, readCardWorkspace, writeCardWorkspace, type CardWorkspace } from "../lib/cardWorkspace";
+import { cacheStatementFile, cachedStatementFile, readCardWorkspace, removeStatementFile, writeCardWorkspace, type CardWorkspace } from "../lib/cardWorkspace";
 import GeneratedCardEntries from "./GeneratedCardEntries";
 import "../styles/card-statements.css";
 
@@ -70,6 +70,7 @@ export default function CardStatements({ entries, centers = previewCenters, cate
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState("");
   const [baseline, setBaseline] = useState<ComparisonEntry[] | null>(null), [baselineName, setBaselineName] = useState("");
   const [summaryOpen, setSummaryOpen] = useState(false), [pdfUrl, setPdfUrl] = useState("");
+  const [removeOpen, setRemoveOpen] = useState(false);
   const [exporting, setExporting] = useState<"xlsx" | "pdf" | null>(null);
   const fileInput = useRef<HTMLInputElement>(null), comparisonInput = useRef<HTMLInputElement>(null);
   const cancelled = useRef(false), started = useRef(false), pdfUrlRef = useRef("");
@@ -157,7 +158,7 @@ export default function CardStatements({ entries, centers = previewCenters, cate
     } finally { if (!cancelled.current && request === activationRequest.current) setBusy(false); }
   }
   useEffect(() => {
-    if (!selectedId && !summaryOpen) return;
+    if (!selectedId && !summaryOpen && !removeOpen) return;
     const dialog = document.querySelector<HTMLElement>(".cs-review-dialog");
     if (!dialog) return;
     const previousFocus = document.activeElement as HTMLElement | null;
@@ -166,7 +167,7 @@ export default function CardStatements({ entries, centers = previewCenters, cate
     const focusable = () => [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary')];
     focusable()[0]?.focus();
     const trapFocus = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !applying) { setSelectedId(""); setSummaryOpen(false); }
+      if (event.key === "Escape" && !applying && !(removeOpen && busy)) { setSelectedId(""); setSummaryOpen(false); setRemoveOpen(false); }
       if (event.key !== "Tab") return;
       const items = focusable(), first = items[0], last = items.at(-1);
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
@@ -174,7 +175,7 @@ export default function CardStatements({ entries, centers = previewCenters, cate
     };
     document.addEventListener("keydown", trapFocus);
     return () => { document.body.style.overflow = previousOverflow; document.removeEventListener("keydown", trapFocus); if (previousFocus?.isConnected) previousFocus.focus(); };
-  }, [selectedId, summaryOpen, applying]);
+  }, [selectedId, summaryOpen, removeOpen, applying, busy]);
   async function loadFile(file: File) {
     const request = ++activationRequest.current;
     setBusy(true); setError(""); setNotice("");
@@ -200,9 +201,33 @@ export default function CardStatements({ entries, centers = previewCenters, cate
       started.current = true;
       const cached = workspaceRef.current.statements.find(s => s.fingerprint === workspaceRef.current.activeFingerprint);
       if (cached) void activateStatement(cached).catch(e => setError(errorMessage(e)));
-      else if (standalone) void loadExample();
+      else if (standalone && !workspaceRef.current.exampleDismissed) void loadExample();
     }
   }, [standalone]);
+  async function removeStatement() {
+    if (!statement || busy || applyingRef.current || exporting) return;
+    const removed = statement;
+    const remaining = workspaceRef.current.statements.filter(s => s.fingerprint !== removed.fingerprint);
+    const nextStatement = remaining.filter(s => statementCardKey(s) === statementCardKey(removed)).sort((a, b) => b.dueDate.localeCompare(a.dueDate))[0] || remaining[0];
+    setBusy(true); setError(""); setNotice("");
+    try {
+      // Keep the financial entries and source ledger: removing a PDF must not
+      // erase expenses or allow reimporting it to create duplicate entries.
+      persistWorkspace({ ...workspaceRef.current, statements: remaining, activeFingerprint: nextStatement?.fingerprint || "", exampleDismissed: true });
+    } catch (e) { setError(errorMessage(e)); setBusy(false); return; }
+    ++activationRequest.current;
+    setRemoveOpen(false); setStatement(null); setDecisions({}); setSelectedId(""); setSummaryOpen(false); setRemoteApplied([]); setRegistryReady(standalone); setIntegrationError(""); setWorkspaceView("review"); setFilter("all"); setSearch("");
+    if (pdfUrlRef.current) URL.revokeObjectURL(pdfUrlRef.current);
+    pdfUrlRef.current = ""; setPdfUrl("");
+    let cleanupFailed = false;
+    try { localStorage.removeItem(storageKey(removed)); } catch { cleanupFailed = true; }
+    try { await removeStatementFile(storageScope, removed.fingerprint); } catch { cleanupFailed = true; }
+    try {
+      if (nextStatement && !cancelled.current) await activateStatement(nextStatement);
+      if (!cancelled.current) setNotice(`Fatura removida da lista deste navegador. Lançamentos e histórico de importação foram preservados.${cleanupFailed ? " O navegador não permitiu apagar parte dos arquivos ou rascunhos locais." : ""}`);
+    } catch (e) { if (!cancelled.current) setError(errorMessage(e)); }
+    finally { if (!cancelled.current) setBusy(false); }
+  }
   function saveDecision(decision: ReviewDecision) {
     if (!statement || !selected) return;
     if (appliedByKey.has(selected.sourceKey!)) { setError("Este item já foi processado. Consulte o lançamento gerado para alterar os dados financeiros."); return; }
@@ -259,6 +284,7 @@ export default function CardStatements({ entries, centers = previewCenters, cate
         <label>Fatura<select aria-label="Selecionar fatura" disabled={busy || applying} value={statement.fingerprint} onChange={e => { const next = workspace.statements.find(s => s.fingerprint === e.target.value); if (next) void activateStatement(next).catch(error => setError(errorMessage(error))); }}>{invoiceOptions.map(s => <option key={s.fingerprint} value={s.fingerprint}>Venc. {dateLabel(s.dueDate)} · {s.fileName}</option>)}</select></label>
         <small>Cartão e vencimento identificados pelo PDF. Importe outra fatura para adicionar um cartão. Leitor validado para o modelo Itaú enviado.</small>
       </div>
+      <div className="cs-statement-actions"><button className="cs-button cs-danger-button" disabled={busy || applying || Boolean(exporting)} onClick={() => { setError(""); setRemoveOpen(true); }}><Trash2 size={15} /> Remover fatura</button></div>
       <section className="cs-overview">
         <div className="cs-bank-card"><div className="cs-bank-card-top"><span className="cs-itau">itaú</span><span className="cs-card-caption">FATURA DO CARTÃO</span>{card}</div><div className="cs-card-number">•••• <span>{statement.cardLast4 || "Não identificado"}</span></div><div className="cs-card-bottom"><div><small>VENCIMENTO</small><strong>{dateLabel(statement.dueDate)}</strong></div><span className="cs-card-status"><Check size={12} /> PDF lido</span></div></div>
         <div className="cs-stat"><span>Movimentação da fatura <CircleHelp size={14} /></span><strong>{money(statement.computedCurrentCents)}</strong><small>{statement.transactions.filter(t => t.kind === "purchase").length} compras + encargos e créditos</small><div className="cs-stat-line"><FileCheck2 size={14} /> {statement.warnings.length ? "Leitura com pendências" : "Soma dos itens conferida"}</div></div>
@@ -319,6 +345,17 @@ export default function CardStatements({ entries, centers = previewCenters, cate
       {error && <div role="alert" className="cs-message cs-message-error">{error}</div>}
       </>}
       <details className="cs-source"><summary>Conferir linha extraída do PDF</summary><p>{selected.sourceLine}</p>{pdfUrl && <a href={`${pdfUrl}#page=${selected.page}`} target="_blank" rel="noreferrer">Abrir página original <ArrowRight size={12} /></a>}</details></div><footer>{selectedApplied || selected.kind === "future" || selected.kind === "payment" ? <button className="cs-button cs-primary" onClick={() => setSelectedId("")}>Entendi</button> : <><button className="cs-button cs-danger-button" onClick={() => saveDecision({ ...emptyDecision(), status: "unrecognized", note: draft.note })}><ShieldQuestion size={16} /> Não reconheço</button><button className="cs-button cs-primary" disabled={!draft.nature || !draft.costCenter || !draft.category || Boolean(matches[selected.id]?.matches.length && !draft.confirmedNew)} onClick={() => saveDecision({ ...draft, status: "classified", linkedEntryId: undefined })}><Check size={16} /> Validar classificação</button></>}</footer></section></div>}
+    {removeOpen && statement && <div className="cs-modal-backdrop" onClick={e => { if (e.target === e.currentTarget && !busy) setRemoveOpen(false); }}>
+      <section role="dialog" aria-modal="true" aria-labelledby="cs-remove-title" aria-describedby="cs-remove-description" className="cs-review-dialog cs-remove-dialog">
+        <header><div><div className="cs-eyebrow">FATURA IMPORTADA</div><h2 id="cs-remove-title">Remover esta fatura?</h2></div><button aria-label="Cancelar remoção" disabled={busy} onClick={() => setRemoveOpen(false)}><X size={20} /></button></header>
+        <div className="cs-dialog-body">
+          <div className="cs-remove-file"><FileText size={22} /><div><strong>{statement.fileName}</strong><span>Itaú · final {statement.cardLast4} · venc. {dateLabel(statement.dueDate)}</span></div></div>
+          <div id="cs-remove-description"><p>O PDF e o rascunho desta fatura serão removidos da lista deste navegador. Você poderá importar o arquivo novamente.</p><p><strong>As despesas já criadas e o histórico de importação serão preservados.</strong> Para corrigir ou excluir uma despesa, acesse Lançamentos. Ao reimportar, os dados já confirmados poderão ser recuperados, evitando duplicações.</p></div>
+          {error && <div className="cs-message cs-message-error" role="alert">{error}</div>}
+        </div>
+        <footer><button className="cs-button cs-secondary" disabled={busy} onClick={() => setRemoveOpen(false)}>Cancelar</button><button className="cs-button cs-danger-button" disabled={busy} onClick={() => void removeStatement()}>{busy ? <LoaderCircle size={16} className="cs-spin" /> : <Trash2 size={16} />}{busy ? "Removendo…" : "Confirmar remoção"}</button></footer>
+      </section>
+    </div>}
     {summaryOpen && statement && <div className="cs-modal-backdrop" onClick={e => { if (e.target === e.currentTarget && !applying) setSummaryOpen(false); }}>
       <section role="dialog" aria-modal="true" aria-labelledby="cs-summary-title" className="cs-review-dialog" onKeyDown={e => { if (e.key === "Escape" && !applying) setSummaryOpen(false); }}>
         <header><div><div className="cs-eyebrow">RESUMO DA CONFERÊNCIA</div><h2 id="cs-summary-title">Distribuição da fatura</h2></div><button aria-label="Fechar resumo" disabled={applying} onClick={() => setSummaryOpen(false)}><X size={20} /></button></header>

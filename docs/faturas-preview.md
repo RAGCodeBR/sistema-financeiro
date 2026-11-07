@@ -73,6 +73,18 @@ salvos localmente; limpar os dados do navegador remove esses dados. Reimportar
 o mesmo arquivo recupera as decisões; não acrescenta linhas à fatura existente.
 O PDF e a base Excel não são enviados a serviços externos pela ferramenta.
 
+**Remover fatura**, abaixo dos seletores de cartão e fatura, pede confirmação
+antes de retirar a fatura da biblioteca deste navegador e apagar o PDF e o
+rascunho locais. Havendo outras faturas, a tela abre outra automaticamente;
+ao remover a última, volta à importação. A amostra local não reaparece após
+essa remoção, inclusive ao recarregar a página.
+
+Despesas já geradas, vínculos e histórico de origem são preservados tanto na
+prévia quanto no sistema integrado. Remover a fatura não estorna nem exclui
+lançamentos financeiros; eventuais correções são feitas em Lançamentos.
+Reimportar o PDF recupera os itens confirmados pelo histórico e não cria
+duplicações. Dados já confirmados no Supabase não são apagados por essa ação.
+
 ## Integração no sistema
 
 A aba **Cartões e faturas** reutiliza o mesmo componente, compara as despesas
