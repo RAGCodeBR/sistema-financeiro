@@ -135,6 +135,12 @@
 .cs-status-neutral { color: #8390a3; background: #f7f9fc; border-color: #e9edf3; }
 .cs-status-warning { color: #ad812d; background: #fffaee; border-color: #f7ecd3; }
 .cs-status-success { color: #4b8d6d; background: #f0f9f3; border-color: #dceddf; }
+.cs-status-refunded { color: #277f78; background: #edf8f6; border-color: #cde7e1; }
+.cs-icon-green { color: #277f78; background: #edf8f6; }
+.cs-bar-refunded { background: #73b9aa; }
+.cs-refund-help { font-size: 11px; color: var(--cs-muted); margin: 7px 0 14px !important; line-height: 1.6; }
+.cs-form-label input { width: 100%; padding: 10px 12px; margin-top: 7px; border: 1px solid #dce5f2; border-radius: 6px; background: #fff; font-size: 13px; color: var(--cs-ink); }
+.cs-review-dialog > footer { flex-wrap: wrap; }
 .cs-status-info { color: #5583c6; background: #f0f6ff; border-color: #dfebfb; }
 .cs-status-danger { color: #c06157; background: #fff3f1; border-color: #f4ded9; }
 .cs-row-action { display: inline-flex; color: #a3b2c5; padding: 4px; border-radius: 4px; }

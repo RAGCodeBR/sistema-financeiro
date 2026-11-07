@@ -1,14 +1,14 @@
-import type { CardStatement } from "./cardStatement";
+import type { CardRefund, CardStatement } from "./cardStatement";
 import type { AppliedStatementItem, StatementImportEntry } from "./cardImport";
 
-export type CardWorkspace = { version: 1; statements: CardStatement[]; entries: StatementImportEntry[]; applied: AppliedStatementItem[]; activeFingerprint: string; exampleDismissed?: boolean };
+export type CardWorkspace = { version: 1; statements: CardStatement[]; entries: StatementImportEntry[]; applied: AppliedStatementItem[]; activeFingerprint: string; exampleDismissed?: boolean; refunds?: CardRefund[] };
 export const emptyCardWorkspace = (): CardWorkspace => ({ version: 1, statements: [], entries: [], applied: [], activeFingerprint: "" });
 const key = (scope: string) => `fincore.cards.workspace.v1.${scope}`;
 export function readCardWorkspace(scope: string): CardWorkspace {
   try {
     const value = JSON.parse(localStorage.getItem(key(scope)) || "null");
     if (value?.version !== 1 || !Array.isArray(value.statements) || !Array.isArray(value.entries) || !Array.isArray(value.applied)) return emptyCardWorkspace();
-    return { ...value, statements: value.statements.filter((s: CardStatement) => typeof s.fingerprint === "string" && Array.isArray(s.transactions) && Array.isArray(s.warnings)), entries: value.entries.filter((e: StatementImportEntry) => typeof e.id === "string" && typeof e.amount === "number"), activeFingerprint: typeof value.activeFingerprint === "string" ? value.activeFingerprint : "" };
+    return { ...value, statements: value.statements.filter((s: CardStatement) => typeof s.fingerprint === "string" && Array.isArray(s.transactions) && Array.isArray(s.warnings)), entries: value.entries.filter((e: StatementImportEntry) => typeof e.id === "string" && typeof e.amount === "number"), refunds: Array.isArray(value.refunds) ? value.refunds.filter((r: CardRefund) => r && typeof r.sourceKey === "string" && Number.isSafeInteger(r.amountCents) && typeof r.date === "string" && typeof r.note === "string") : [], activeFingerprint: typeof value.activeFingerprint === "string" ? value.activeFingerprint : "" };
   } catch { return emptyCardWorkspace(); }
 }
 export function writeCardWorkspace(scope: string, workspace: CardWorkspace) {

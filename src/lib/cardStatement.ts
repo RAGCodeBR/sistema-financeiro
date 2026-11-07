@@ -27,11 +27,13 @@ export type ComparisonEntry = {
 export type Match = { entry: ComparisonEntry; score: number; reason: string };
 export type Reconciliation = { status: "uncompared" | "new" | "possible" | "matched" | "ambiguous"; matches: Match[] };
 export type ReviewDecision = {
-  status: "pending" | "classified" | "linked" | "unrecognized";
+  status: "pending" | "classified" | "linked" | "unrecognized" | "refunded" | "refund_credit";
   nature: "" | "PJ" | "PF"; costCenter: string; category: string;
   linkedEntryId?: string; note: string;
   confirmedNew?: boolean;
+  refund?: CardRefund;
 };
+export type CardRefund = { sourceKey: string; amountCents: number; date: string; note: string; creditSourceKey?: string };
 export const normalizeStatementText = (text: string) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 export function brlCents(text: string): number {
   const clean = text.replace(/R\$/gi, "").replace(/\s/g, "");
@@ -178,4 +180,12 @@ export function currentTransactions(statement: CardStatement): StatementTransact
 export function reviewIsComplete(transaction: StatementTransaction, decision: ReviewDecision | undefined): boolean {
   if (!decision) return false;
   return decision.status === "linked" ? Boolean(decision.linkedEntryId) : decision.status === "classified" && Boolean(decision.nature && decision.costCenter && decision.category);
+}
+export function refundDecision(transaction: StatementTransaction, refunds: CardRefund[]): ReviewDecision | undefined {
+  const refund = refunds.find(r => r.sourceKey === transaction.sourceKey || r.creditSourceKey === transaction.sourceKey);
+  if (!refund) return;
+  return { ...emptyDecision(), status: refund.sourceKey === transaction.sourceKey ? "refunded" : "refund_credit", note: refund.note, refund };
+}
+export function reviewIsResolved(transaction: StatementTransaction, decision: ReviewDecision | undefined): boolean {
+  return reviewIsComplete(transaction, decision) || Boolean(decision?.refund && ["refunded", "refund_credit"].includes(decision.status));
 }

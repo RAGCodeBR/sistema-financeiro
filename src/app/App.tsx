@@ -29,7 +29,7 @@ import { CountUp, CurrencyInput, Month, fmt, labelMonth, moneyInput, parseMoney 
 import TeamNotesScreen from "./TeamNotes";
 import BanksSection from "./Banks";
 import CardStatements from "./CardStatements";
-import { confirmRemoteCardStatement, loadRemoteCardItems } from "../lib/cardImportRemote";
+import { confirmRemoteCardStatement, loadRemoteCardItems, saveRemoteCardRefund } from "../lib/cardImportRemote";
 import { sourceKeyString } from "../lib/cardImport";
 import { snapshotFile, unreadableFileMessage } from "../lib/files";
 import { exportFinanceExcel, exportFinancePdf, exportPeriodRange, exportViewLabels, filterFinanceEntries, summarizeEntries, type ExportPeriod, type ExportView, type FinanceExport } from "../lib/financeExport";
@@ -5614,6 +5614,7 @@ function App() {
               comparisonReady={dataReady && !dataError}
               storageScope={currentUser.id}
               loadApplied={loadRemoteCardItems}
+              onSaveRefund={saveRemoteCardRefund}
               onConfirm={async payload => {
                 const result = await confirmRemoteCardStatement(payload);
                 const observed = [...(result.existingEntries || []), ...result.createdEntries];

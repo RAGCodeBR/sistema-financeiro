@@ -1,15 +1,16 @@
-import { currentTransactions, reconcileStatement, reviewIsComplete, type CardStatement, type ComparisonEntry, type ReviewDecision, type StatementTransaction } from "./cardStatement.ts";
+import { currentTransactions, reconcileStatement, refundDecision, reviewIsComplete, type CardRefund, type CardStatement, type ComparisonEntry, type ReviewDecision, type StatementTransaction } from "./cardStatement.ts";
+import { validateCardRefund } from "./cardRefund.ts";
 
 export type StatementPayment = { state: "paid" | "open" | "unknown"; entryStatus: "previsto" | "realizado"; paidDate: string; explanation: string };
 export type AppliedStatementItem = { sourceKey: string; entryId: string | null; nature: "PF" | "PJ"; costCenter: string; category: string; netCents: number; status: "created" | "linked" | "offset"; cardKey: string; dueDate: string; note?: string };
-export type StatementReviewState = { applied: AppliedStatementItem[]; drafts: Record<string, ReviewDecision> };
+export type StatementReviewState = { applied: AppliedStatementItem[]; drafts: Record<string, ReviewDecision>; refunds?: CardRefund[]; refundsReady?: boolean };
 export type StatementImportEntry = ComparisonEntry & {
   kind: "despesa"; unit: string; account: string; category: string; beneficiary: string; pix: string;
   status: "previsto" | "realizado"; recurrence: "nenhuma" | "mensal"; installments: number; notes: string;
   nature: "PF" | "PJ"; cardLast4: string; cardKey: string; cardSourceKey: string; purchaseDate: string;
 };
 export type ImportPlanItem = { transaction: StatementTransaction; decision: ReviewDecision; netCents: number; creditCents: number; sourceKey: string };
-export type StatementImportPlan = { statement: CardStatement; decisions: Record<string, ReviewDecision>; payment: StatementPayment; items: ImportPlanItem[]; newEntries: ImportPlanItem[]; links: ImportPlanItem[]; offsets: ImportPlanItem[]; alreadyApplied: AppliedStatementItem[]; settlements: ComparisonEntry[]; heldCount: number; blockers: string[] };
+export type StatementImportPlan = { statement: CardStatement; decisions: Record<string, ReviewDecision>; payment: StatementPayment; items: ImportPlanItem[]; newEntries: ImportPlanItem[]; links: ImportPlanItem[]; offsets: ImportPlanItem[]; alreadyApplied: AppliedStatementItem[]; settlements: ComparisonEntry[]; heldCount: number; refundedCount: number; blockers: string[] };
 export type ConfirmStatementPayload = ReturnType<typeof importPayload>;
 export type ConfirmStatementResult = { createdEntries: StatementImportEntry[]; existingEntries?: StatementImportEntry[]; applied: AppliedStatementItem[]; alreadyAppliedCount: number; settledCount?: number };
 export const statementCardKey = (s: CardStatement) => `${s.bankCode || "itau"}:${s.maskedCardNumber || s.cardLast4}`;
@@ -36,7 +37,7 @@ export function getStatementPayment(s: CardStatement): StatementPayment {
   return { state: "unknown", entryStatus: "previsto", paidDate: "", explanation: "O documento não comprova a quitação integral. As despesas permanecem previstas; nenhum pagamento será presumido pela data de vencimento." };
 }
 
-export function buildStatementImportPlan(statement: CardStatement, decisions: Record<string, ReviewDecision>, entries: ComparisonEntry[] | null, applied: AppliedStatementItem[] = []): StatementImportPlan {
+export function buildStatementImportPlan(statement: CardStatement, decisions: Record<string, ReviewDecision>, entries: ComparisonEntry[] | null, applied: AppliedStatementItem[] = [], refunds: CardRefund[] = []): StatementImportPlan {
   const s = identifyStatement(statement), current = currentTransactions(s), payment = getStatementPayment(s);
   const appliedByKey = new Map(applied.map(a => [a.sourceKey, a]));
   const alreadyApplied = current.flatMap(t => appliedByKey.has(t.sourceKey!) ? [appliedByKey.get(t.sourceKey!)!] : []);
@@ -52,9 +53,16 @@ export function buildStatementImportPlan(statement: CardStatement, decisions: Re
     else settlements.push(entry);
   }
   const items: ImportPlanItem[] = [];
+  let refundedCount = 0;
   const linkedIds = new Set<string>();
   for (const t of current) {
     if (appliedByKey.has(t.sourceKey!)) continue;
+    const resolution = refundDecision(t, refunds);
+    if (resolution) {
+      try { validateCardRefund(resolution.refund!, applied, refunds); refundedCount++; }
+      catch (e) { blockers.push(e instanceof Error ? e.message : "Revise os dados do estorno."); }
+      continue;
+    }
     const d = decisions[t.id];
     if (!reviewIsComplete(t, d)) {
       if (t.amountCents < 0) blockers.push("Classifique os créditos e ajustes antes de gerar despesas, para que os abatimentos sejam considerados.");
@@ -81,7 +89,7 @@ export function buildStatementImportPlan(statement: CardStatement, decisions: Re
     for (const item of positive) { const offset = Math.min(item.netCents, remaining); item.creditCents = offset; item.netCents -= offset; remaining -= offset; }
     if (remaining > 0) blockers.push(`Há créditos sem despesa nova suficiente em ${group[0].decision.costCenter} / ${group[0].decision.category}. Revise a distribuição dos ajustes.`);
   }
-  return { statement: s, decisions, payment, items, newEntries: items.filter(i => i.decision.status === "classified" && i.netCents > 0), links: items.filter(i => i.decision.status === "linked"), offsets: items.filter(i => i.decision.status === "classified" && i.netCents === 0), alreadyApplied, settlements, heldCount: current.length - items.length - alreadyApplied.length, blockers: [...new Set(blockers)] };
+  return { statement: s, decisions, payment, items, newEntries: items.filter(i => i.decision.status === "classified" && i.netCents > 0), links: items.filter(i => i.decision.status === "linked"), offsets: items.filter(i => i.decision.status === "classified" && i.netCents === 0), alreadyApplied, settlements, heldCount: current.length - items.length - alreadyApplied.length - refundedCount, refundedCount, blockers: [...new Set(blockers)] };
 }
 
 export function importPayload(plan: StatementImportPlan) {

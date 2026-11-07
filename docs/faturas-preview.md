@@ -85,6 +85,36 @@ lançamentos financeiros; eventuais correções são feitas em Lançamentos.
 Reimportar o PDF recupera os itens confirmados pelo histórico e não cria
 duplicações. Dados já confirmados no Supabase não são apagados por essa ação.
 
+## Compras não reconhecidas e estornos
+
+Ao reabrir uma compra não reconhecida, há três ações: **Manter em apuração**
+salva a observação e mantém a pendência; **Reconhecer compra** libera novamente
+a classificação PJ/PF; **Marcar como estornada** registra valor integral, data
+e observação do cancelamento confirmado pelo banco. Estornos parciais não
+encerram a ocorrência nesta versão e devem permanecer em apuração.
+
+O vínculo com um crédito é opcional e pode ser adicionado depois em
+**Detalhar estorno**. O seletor oferece créditos ainda não processados nas
+faturas importadas do mesmo cartão e do mesmo valor, inclusive de outro
+vencimento. Um crédito só pode resolver uma compra e não pode ser reutilizado
+na compensação de outras despesas. Não há associação automática por descrição.
+
+Compras encerradas recebem a tag **Estornada** e o filtro **Estornadas**.
+Elas saem de A validar e de Não reconhecidas. Um crédito associado recebe
+**Crédito de estorno** e também sai das pendências. Ambos ficam em uma seção
+separada da distribuição e dos relatórios PDF/Excel, com valor, data,
+observação e referência ao crédito. Os valores e totais originais do PDF são
+preservados: a marcação não cria despesa nem receita e não presume que o
+banco alterou o documento original.
+
+Compras já lançadas ou vinculadas e créditos já compensados não podem ser
+encerrados por esse fluxo: exigem correção financeira em Lançamentos.
+Na prévia, os estornos ficam no histórico local por identidade de origem e
+continuam reconhecidos ao remover/reimportar o PDF ou importar outra versão.
+No sistema autenticado, são salvos imediatamente no Supabase pela rotina
+`record_card_refund`, sem depender de gerar outras despesas. Alterações têm
+histórico de auditoria; acesso e escrita são verificados no servidor.
+
 ## Integração no sistema
 
 A aba **Cartões e faturas** reutiliza o mesmo componente, compara as despesas
@@ -112,6 +142,13 @@ A migração `supabase/migrations/20261106190000_card_statement_import.sql`
 habilita a confirmação no sistema autenticado. Sua aplicação ao ambiente de
 destino é independente da publicação do frontend: o workflow de GitHub Pages
 executa os testes e o build, mas não aplica migrações no Supabase.
+
+A migração seguinte, `supabase/migrations/20261106210000_card_refund_reviews.sql`,
+habilita o registro e os vínculos de estornos e atualiza a confirmação de
+faturas para excluir essas movimentações da criação financeira. Ambas precisam
+ser aplicadas em ordem. Sem a segunda, a conferência existente continua
+funcionando, mas o formulário de estorno informa que a integração precisa ser
+habilitada e não afirma ter encerrado uma ocorrência no servidor.
 
 `confirm_card_statement` valida totais, identidade de origem, classificação,
 acesso ao centro, categoria, vínculos e compensações no servidor. Uma trava

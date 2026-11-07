@@ -1,4 +1,5 @@
-import { currentTransactions, reviewIsComplete, type CardStatement, type ReviewDecision, type StatementTransaction } from "./cardStatement";
+import { currentTransactions, reviewIsComplete, reviewIsResolved, type CardStatement, type ReviewDecision, type StatementTransaction } from "./cardStatement";
+import { refundDescription } from "./cardRefund";
 import { getStatementPayment, type AppliedStatementItem } from "./cardImport";
 
 export type CardReviewExportOptions = {
@@ -19,11 +20,12 @@ function buildReport(options: CardReviewExportOptions) {
   const current = currentTransactions(statement);
   const reviewed = current.filter(t => reviewIsComplete(t, decisions[t.id]));
   const unrecognized = current.filter(t => decisions[t.id]?.status === "unrecognized");
+  const refunded = current.filter(t => decisions[t.id]?.status === "refunded");
   const groups = new Map<string, { nature: string; center: string; category: string; count: number; totalCents: number }>();
   for (const t of current) {
     const d = decisions[t.id], complete = reviewIsComplete(t, d);
-    const nature = complete ? d.nature || "Não informada" : "A distribuir";
-    const center = complete ? d.costCenter || "Não informado" : "Pendente de validação";
+    const nature = d?.refund ? "Estornos" : complete ? d.nature || "Não informada" : "A distribuir";
+    const center = d?.refund ? "Encerrada por estorno" : complete ? d.costCenter || "Não informado" : "Pendente de validação";
     const category = complete ? d.category || "Não informada" : "";
     const key = JSON.stringify([nature, center, category]);
     const group = groups.get(key) || { nature, center, category, count: 0, totalCents: 0 };
@@ -32,14 +34,15 @@ function buildReport(options: CardReviewExportOptions) {
   const row = (t: StatementTransaction) => {
     const d = decisions[t.id];
     const applied = options.applied?.find(item => item.sourceKey === t.sourceKey);
-    const status = t.kind === "payment" ? "Pagamento - fora das despesas atuais" : t.kind === "future" ? "Previsão - fora da fatura atual" : applied ? applied.status === "offset" ? "Compensada por créditos" : applied.status === "linked" ? "Vínculo confirmado" : "Lançada" : d?.status === "unrecognized" ? "Não reconhecida - em apuração" : reviewIsComplete(t, d) ? d.status === "linked" ? "Vínculo confirmado" : "Classificada" : "A validar";
+    const status = t.kind === "payment" ? "Pagamento - fora das despesas atuais" : t.kind === "future" ? "Previsão - fora da fatura atual" : applied ? applied.status === "offset" ? "Compensada por créditos" : applied.status === "linked" ? "Vínculo confirmado" : "Lançada" : d?.status === "refunded" ? "Estornada - ocorrência encerrada" : d?.status === "refund_credit" ? "Crédito vinculado a estorno" : d?.status === "unrecognized" ? "Não reconhecida - em apuração" : reviewIsComplete(t, d) ? d.status === "linked" ? "Vínculo confirmado" : "Classificada" : "A validar";
     return { date: formatDate(t.date), description: t.description, kind: kindNames[t.kind], value: t.amountCents / 100,
       nature: d?.nature || "", center: d?.costCenter || "", category: d?.category || "", status,
-      distributionNature: reviewIsComplete(t, d) ? d.nature || "" : "",
-      installment: t.installment || "", note: d?.note || "", detail: t.detail, page: t.page, linkedEntryId: d?.linkedEntryId || "" };
+      distributionNature: d?.refund ? "Estornos" : reviewIsComplete(t, d) ? d.nature || "" : "",
+      refundDate: formatDate(d?.refund?.date || ""), refundValue: d?.refund ? d.refund.amountCents / 100 : "", refundCredit: d?.refund?.creditSourceKey || "",
+      installment: t.installment || "", note: d?.refund ? refundDescription(d.refund, d.status === "refund_credit") : d?.note || "", detail: t.detail, page: t.page, linkedEntryId: d?.linkedEntryId || "" };
   };
   return {
-    current, reviewed, unrecognized, pending: current.length - reviewed.length,
+    current, reviewed, unrecognized, refunded, pending: current.filter(t => !reviewIsResolved(t, decisions[t.id])).length,
     groups: [...groups.values()], currentRows: current.map(row),
     payments: statement.transactions.filter(t => t.kind === "payment").map(row),
     future: statement.transactions.filter(t => t.kind === "future").map(row),
@@ -71,6 +74,7 @@ export async function exportCardReviewExcel(options: CardReviewExportOptions) {
   }
   for (const [label, value] of [["Movimentações atuais (quantidade)", report.current.length], ["Itens validados", report.reviewed.length], ["Itens pendentes", report.pending], ["Compras não reconhecidas", report.unrecognized.length], ["Base de comparação", report.comparisonLabel], ["Datas dos itens", dateNotice], ["Pagamentos e parcelas futuras", "Exibidos em abas separadas. Não são somados às despesas atuais."], ["Validação da leitura", statement.warnings.length ? "Leitura com pendências; confira os avisos abaixo." : "Soma dos itens conferida com o PDF."]] as const) summary.addRow([label, value]);
   for (const warning of statement.warnings) summary.addRow(["Aviso de leitura", warning]);
+  summary.addRow(["Compras estornadas", report.refunded.length]);
   summary.getColumn(1).font = { bold: true, color: { argb: "FF304D73" } };
   summary.getColumn(2).alignment = { vertical: "top", wrapText: true };
   summary.eachRow((row, index) => { if (index !== 1) row.height = 34; });
@@ -101,8 +105,9 @@ export async function exportCardReviewExcel(options: CardReviewExportOptions) {
       { header: "Parcela", key: "installment", width: 12 }, { header: "Observação", key: "note", width: 48 },
       { header: "Detalhe no PDF", key: "detail", width: 48 }, { header: "Página do PDF", key: "page", width: 17 },
       { header: "Lançamento vinculado", key: "linkedEntryId", width: 38 },
+      { header: "Data do estorno", key: "refundDate", width: 18 }, { header: "Valor estornado (R$)", key: "refundValue", width: 22 }, { header: "Origem do crédito de estorno", key: "refundCredit", width: 48 },
     ];
-    sheet.addRows(rows); styleSheet(sheet, "value");
+    sheet.addRows(rows); styleSheet(sheet, "value"); sheet.getColumn("refundValue").numFmt = currencyFormat;
   }
   addTransactions("Movimentações atuais", report.currentRows);
   addTransactions("Pagamentos", report.payments);
@@ -121,10 +126,10 @@ export async function exportCardReviewPdf(options: CardReviewExportOptions) {
   const paragraphs = [localReviewNotice,
     `Movimentações atuais: ${money(statement.computedCurrentCents)} | Total a pagar: ${statement.invoiceTotalCents === null ? "Não identificado" : money(statement.invoiceTotalCents)}`,
     `Saldo anterior: ${statement.previousBalanceCents === null ? "Não identificado" : money(statement.previousBalanceCents)} | Pagamentos: ${statement.paymentsTotalCents === null ? "Não identificado" : money(statement.paymentsTotalCents)}`,
-    `${report.current.length} itens atuais | ${report.reviewed.length} validados | ${report.pending} pendentes | ${report.unrecognized.length} não reconhecidos`,
+    `${report.current.length} itens atuais | ${report.reviewed.length} validados | ${report.pending} pendentes | ${report.unrecognized.length} não reconhecidos | ${report.refunded.length} estornados`,
     `Pagamento identificado: ${getStatementPayment(statement).state === "paid" ? `pago em ${formatDate(getStatementPayment(statement).paidDate)}` : getStatementPayment(statement).state === "open" ? "a pagar" : "não comprovado - previsto"}`,
     getStatementPayment(statement).explanation,
-    `Comparação: ${report.comparisonLabel}`, dateNotice];
+    `Comparação: ${report.comparisonLabel}`, dateNotice, ...(report.refunded.length || report.currentRows.some(row => row.distributionNature === "Estornos") ? ["Estornos encerrados não geram despesa ou receita. A movimentação original do PDF é preservada; o cancelamento informado não altera os totais do documento."] : [])];
   for (const paragraph of paragraphs) { const lines = doc.splitTextToSize(paragraph, 271); doc.text(lines, 13, y); y += lines.length * 4.3 + 2; }
   const table = (title: string, head: string[], body: (string | number)[][], columnStyles?: Record<number, { cellWidth: number; halign?: "right" | "left" }>, options?: { color?: [number, number, number]; foot?: (string | number)[][] }) => {
     if (y > 167) { doc.addPage(); y = 34; }
@@ -143,11 +148,12 @@ export async function exportCardReviewPdf(options: CardReviewExportOptions) {
   for (const section of [
     { nature: "PJ", title: "PJ - Pessoa jurídica", subtotal: "Subtotal PJ", color: [37, 99, 210] as [number, number, number] },
     { nature: "PF", title: "PF - Pessoa física", subtotal: "Subtotal PF", color: [126, 83, 173] as [number, number, number] },
+    { nature: "Estornos", title: "Estornos - ocorrências encerradas", subtotal: "Movimentação original dos itens encerrados", color: [46, 125, 105] as [number, number, number] },
     { nature: "", title: "Pendências - sem distribuição PJ/PF", subtotal: "Subtotal a distribuir", color: [150, 112, 44] as [number, number, number] },
   ]) {
     const rows = report.currentRows.filter(row => row.distributionNature === section.nature);
     if (!rows.length) continue;
-    const groups = report.groups.filter(group => section.nature ? group.nature === section.nature : !["PJ", "PF"].includes(group.nature));
+    const groups = report.groups.filter(group => section.nature ? group.nature === section.nature : !["PJ", "PF", "Estornos"].includes(group.nature));
     if (renderedSections++) { doc.addPage(); y = 34; }
     table(`${section.title} - distribuição`, ["Centro de custo", "Categoria", "Itens", "Total"], groups.map(group => [group.center, group.category || "-", group.count, money(group.totalCents)]),
       { 0: { cellWidth: 80 }, 1: { cellWidth: 130 }, 2: { cellWidth: 20, halign: "right" }, 3: { cellWidth: 41, halign: "right" } },

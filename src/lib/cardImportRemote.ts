@@ -1,5 +1,16 @@
 import { supabase, readAuthenticatedRows } from "./supabase";
 import { sourceKeyString, type AppliedStatementItem, type ConfirmStatementPayload, type ConfirmStatementResult, type StatementImportEntry, type StatementReviewState } from "./cardImport";
+import type { CardRefund } from "./cardStatement";
+
+const refundFromRow = (row: any): CardRefund => ({ sourceKey: sourceKeyString(row.source_key), amountCents: Number(row.amount_cents), date: row.refund_date, note: row.note || "", creditSourceKey: row.credit_source_key ? sourceKeyString(row.credit_source_key) : undefined });
+export async function saveRemoteCardRefund(refund: CardRefund): Promise<CardRefund> {
+  const { data, error } = await supabase.rpc("record_card_refund", { payload: { source_key: JSON.parse(refund.sourceKey), amount_cents: refund.amountCents, refund_date: refund.date, note: refund.note, credit_source_key: refund.creditSourceKey ? JSON.parse(refund.creditSourceKey) : null } });
+  if (error) {
+    if (["PGRST202", "42P01", "42883"].includes(error.code)) throw new Error("O registro de estornos ainda não foi habilitado no banco deste ambiente.");
+    throw new Error(error.message || "Não foi possível registrar o estorno. A compra permanece em apuração.");
+  }
+  return refundFromRow(data);
+}
 
 export function importedEntryFromRow(row: any): StatementImportEntry {
   return { ...row, amount: Number(row.amount), kind: "despesa", pix: row.pix || "", beneficiary: row.beneficiary || "", recurrence: row.recurrence === "mensal" ? "mensal" : "nenhuma",
@@ -12,9 +23,9 @@ const appliedFromRow = (row: any): AppliedStatementItem => ({ sourceKey: sourceK
   costCenter: row.unit, category: row.category, netCents: Number(row.net_cents), status: row.status, cardKey: row.card_key, dueDate: row.due_date, note: row.note });
 export async function loadRemoteCardItems(cardKey: string, _dueDate: string): Promise<StatementReviewState> {
   try {
-    const rows = await readAuthenticatedRows<any>("card_import_items");
+    const [rows, refundResult] = await Promise.all([readAuthenticatedRows<any>("card_import_items"), readAuthenticatedRows<any>("card_refund_reviews").then(rows => ({ rows, ready: true })).catch(() => ({ rows: [] as any[], ready: false }))]);
     const cardRows = rows.filter(row => row.card_key === cardKey);
-    return { applied: cardRows.filter(row => ["created", "linked", "offset"].includes(row.status)).map(appliedFromRow),
+    return { applied: cardRows.filter(row => ["created", "linked", "offset"].includes(row.status)).map(appliedFromRow), refunds: refundResult.rows.filter(row => row.card_key === cardKey).map(refundFromRow), refundsReady: refundResult.ready,
       drafts: Object.fromEntries(cardRows.filter(row => ["pending", "unrecognized"].includes(row.status)).map(row => [sourceKeyString(row.source_key), { status: row.status, nature: row.nature || "", costCenter: row.unit || "", category: row.category || "", note: row.note || "" }])) };
   } catch { throw new Error("A integração de faturas ainda não foi habilitada no banco deste ambiente. A conferência e os relatórios continuam disponíveis."); }
 }

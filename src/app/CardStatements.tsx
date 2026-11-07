@@ -1,23 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, ArrowDownLeft, ArrowRight, Building2, Check, CheckCircle2, ChevronLeft, ChevronRight, CircleHelp, CreditCard, Download, FileCheck2, FileText, FolderOpen, History, Landmark, LoaderCircle, LockKeyhole, ReceiptText, Search, ShieldQuestion, Trash2, Upload, UserRound, X } from "lucide-react";
-import { currentTransactions, emptyDecision, normalizeStatementText, reconcileStatement, reviewIsComplete, type CardStatement, type ComparisonEntry, type Reconciliation, type ReviewDecision, type StatementTransaction } from "../lib/cardStatement";
+import { currentTransactions, emptyDecision, normalizeStatementText, reconcileStatement, refundDecision, reviewIsComplete, reviewIsResolved, type CardRefund, type CardStatement, type ComparisonEntry, type Reconciliation, type ReviewDecision, type StatementTransaction } from "../lib/cardStatement";
+import { availableRefundCredits, refundDescription, validateCardRefund } from "../lib/cardRefund";
 import { readStatementPdf } from "../lib/readStatementPdf";
 import { readComparisonExcel } from "../lib/readComparison";
 import { buildStatementImportPlan, createLocalStatementEntries, identifyStatement, importPayload, statementCardKey, type AppliedStatementItem, type ConfirmStatementPayload, type ConfirmStatementResult, type StatementReviewState } from "../lib/cardImport";
 import { cacheStatementFile, cachedStatementFile, readCardWorkspace, removeStatementFile, writeCardWorkspace, type CardWorkspace } from "../lib/cardWorkspace";
 import GeneratedCardEntries from "./GeneratedCardEntries";
+import CardRefundDialog from "./CardRefundDialog";
 import "../styles/card-statements.css";
 
 type Category = { name: string; unit: string; kind?: string };
 type Props = { entries?: ComparisonEntry[]; centers?: string[]; categories?: Category[]; comparisonReady?: boolean; standalone?: boolean; storageScope?: string;
   loadApplied?: (cardKey: string, dueDate: string) => Promise<StatementReviewState>;
-  onConfirm?: (payload: ConfirmStatementPayload) => Promise<ConfirmStatementResult> };
+  onConfirm?: (payload: ConfirmStatementPayload) => Promise<ConfirmStatementResult>;
+  onSaveRefund?: (refund: CardRefund) => Promise<CardRefund> };
 const previewCenters = ["Marketing", "Sítio", "Consultoria", "Pessoa Física"];
 const genericCategories = ["Alimentação", "Viagens e transporte", "Software e assinaturas", "Compras e materiais", "Tarifas e impostos", "Outras despesas"];
 const money = (cents: number) => (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const dateLabel = (iso: string) => iso ? iso.split("-").reverse().join("/") : "Não identificada";
 const kindLabel = { purchase: "Compra", fee: "Encargo", credit: "Crédito / ajuste", future: "Parcela futura", payment: "Pagamento" };
-type Filter = "all" | "pending" | "new" | "matches" | "unrecognized" | "reviewed" | "future" | "payments";
+type Filter = "all" | "pending" | "new" | "matches" | "unrecognized" | "refunded" | "reviewed" | "future" | "payments";
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : "Não foi possível ler o arquivo. Tente novamente."; }
 function suggestedCategory(t: StatementTransaction): string {
   const text = normalizeStatementText(`${t.description} ${t.detail}`);
@@ -32,6 +35,8 @@ function stateLabel(t: StatementTransaction, decision: ReviewDecision | undefine
   if (t.kind === "payment") return { label: "Pagamento separado", tone: "neutral" };
   if (t.kind === "future") return { label: "Próximas faturas", tone: "neutral" };
   if (applied) return { label: applied.status === "offset" ? "Compensada por créditos" : !applied.entryId ? "Lançamento removido" : applied.status === "linked" ? "Vínculo confirmado" : "Lançada", tone: applied.status !== "offset" && !applied.entryId ? "warning" : "success" };
+  if (decision?.status === "refunded") return { label: "Estornada", tone: "refunded" };
+  if (decision?.status === "refund_credit") return { label: "Crédito de estorno", tone: "refunded" };
   if (decision?.status === "unrecognized") return { label: "Não reconhecida", tone: "danger" };
   if (reviewIsComplete(t, decision)) return { label: decision?.status === "linked" ? "Vínculo confirmado" : "Classificada", tone: "success" };
   if (t.kind === "credit") return { label: "Validar crédito", tone: "warning" };
@@ -53,11 +58,13 @@ function restoreDecisions(key: string, statement: CardStatement): Record<string,
     return result;
   } catch { return {}; }
 }
-export default function CardStatements({ entries, centers = previewCenters, categories, comparisonReady = false, standalone = false, storageScope = "preview", loadApplied, onConfirm }: Props) {
+export default function CardStatements({ entries, centers = previewCenters, categories, comparisonReady = false, standalone = false, storageScope = "preview", loadApplied, onConfirm, onSaveRefund }: Props) {
   const [workspace, setWorkspace] = useState(() => readCardWorkspace(storageScope));
   const workspaceRef = useRef(workspace);
   const [workspaceView, setWorkspaceView] = useState<"review" | "entries">("review");
   const [remoteApplied, setRemoteApplied] = useState<AppliedStatementItem[]>([]);
+  const [remoteRefunds, setRemoteRefunds] = useState<CardRefund[]>([]), [refundsReady, setRefundsReady] = useState(standalone);
+  const [refundOpen, setRefundOpen] = useState(false);
   const [registryReady, setRegistryReady] = useState(standalone), [integrationError, setIntegrationError] = useState("");
   const [applying, setApplying] = useState(false);
   const applyingRef = useRef(false);
@@ -77,8 +84,9 @@ export default function CardStatements({ entries, centers = previewCenters, cate
   const activationRequest = useRef(0);
   const sourceEntries = useMemo(() => standalone ? [...workspace.entries, ...(baseline || [])] : entries && comparisonReady ? entries : null, [standalone, workspace.entries, baseline, entries, comparisonReady]);
   const appliedRecords = standalone ? workspace.applied : remoteApplied;
+  const refunds = standalone ? workspace.refunds || [] : remoteRefunds;
   const appliedByKey = useMemo(() => new Map(appliedRecords.map(item => [item.sourceKey, item])), [appliedRecords]);
-  const plan = useMemo(() => statement ? buildStatementImportPlan(statement, decisions, sourceEntries, appliedRecords) : null, [statement, decisions, sourceEntries, appliedRecords]);
+  const plan = useMemo(() => statement ? buildStatementImportPlan(statement, decisions, sourceEntries, appliedRecords, refunds) : null, [statement, decisions, sourceEntries, appliedRecords, refunds]);
   const cardOptions = [...new Map(workspace.statements.map(s => [statementCardKey(s), { key: statementCardKey(s), last4: s.cardLast4 }])).values()];
   const activeCard = statement ? statementCardKey(statement) : "";
   const invoiceOptions = workspace.statements.filter(s => statementCardKey(s) === activeCard).sort((a, b) => b.dueDate.localeCompare(a.dueDate));
@@ -92,12 +100,14 @@ export default function CardStatements({ entries, centers = previewCenters, cate
   const selected = statement?.transactions.find(t => t.id === selectedId);
   const selectedApplied = selected ? appliedByKey.get(selected.sourceKey!) : undefined;
   const reviewed = current.filter(t => reviewIsComplete(t, decisions[t.id]));
+  const resolved = current.filter(t => reviewIsResolved(t, decisions[t.id]));
+  const refunded = current.filter(t => decisions[t.id]?.status === "refunded");
   const unrecognized = current.filter(t => decisions[t.id]?.status === "unrecognized");
-  const pending = current.length - reviewed.length;
-  const classificationTotals = { PJ: 0, PF: 0, pending: 0 };
+  const pending = current.length - resolved.length;
+  const classificationTotals = { PJ: 0, PF: 0, pending: 0, refunded: 0 };
   for (const t of current) {
     const d = decisions[t.id];
-    classificationTotals[reviewIsComplete(t, d) && d?.nature ? d.nature : "pending"] += t.amountCents;
+    classificationTotals[d?.refund ? "refunded" : reviewIsComplete(t, d) && d?.nature ? d.nature : "pending"] += t.amountCents;
   }
   const filtered = (statement?.transactions || []).filter(t => {
     if (filter === "future") { if (t.kind !== "future") return false; }
@@ -105,10 +115,11 @@ export default function CardStatements({ entries, centers = previewCenters, cate
     else {
       if (t.kind === "future" || t.kind === "payment") return false;
       const d = decisions[t.id], m = matches[t.id];
-      if (filter === "pending" && reviewIsComplete(t, d)) return false;
+      if (filter === "pending" && reviewIsResolved(t, d)) return false;
       if (filter === "new" && m?.status !== "new") return false;
       if (filter === "matches" && !m?.matches.length) return false;
       if (filter === "unrecognized" && d?.status !== "unrecognized") return false;
+      if (filter === "refunded" && d?.status !== "refunded") return false;
       if (filter === "reviewed" && !reviewIsComplete(t, d)) return false;
     }
     return normalizeStatementText(`${t.description} ${t.detail} ${decisions[t.id]?.costCenter || ""}`).includes(normalizeStatementText(search));
@@ -122,26 +133,24 @@ export default function CardStatements({ entries, centers = previewCenters, cate
   const draftCategories = categories ? categories.filter(c => c.unit === draft.costCenter && (!c.kind || c.kind === "despesa")).map(c => c.name) : genericCategories;
   const draftCenters = effectiveCenters.filter(c => draft.nature === "PF" ? normalizeStatementText(c) === "pessoa fisica" : draft.nature === "PJ" ? normalizeStatementText(c) !== "pessoa fisica" : true);
   const storageKey = (s: CardStatement) => `fincore.statement.v1.${storageScope}.${s.fingerprint}`;
-  useEffect(() => {
-    if (selected) setDraft(decisions[selected.id] || emptyDecision());
-  }, [selectedId, decisions]);
   useEffect(() => () => { cancelled.current = true; if (pdfUrlRef.current) URL.revokeObjectURL(pdfUrlRef.current); }, []);
   function persistWorkspace(next: CardWorkspace) {
     writeCardWorkspace(storageScope, next); workspaceRef.current = next; setWorkspace(next);
   }
-  function restoredWithApplied(s: CardStatement, records: AppliedStatementItem[], remoteDrafts: StatementReviewState["drafts"] = {}) {
+  function restoredWithApplied(s: CardStatement, records: AppliedStatementItem[], remoteDrafts: StatementReviewState["drafts"] = {}, refundRecords: CardRefund[] = standalone ? workspaceRef.current.refunds || [] : remoteRefunds) {
     const restored = restoreDecisions(storageKey(s), s), byKey = new Map(records.map(item => [item.sourceKey, item]));
     for (const t of s.transactions) {
       if (!restored[t.id] && remoteDrafts[t.sourceKey!]) restored[t.id] = remoteDrafts[t.sourceKey!];
       const saved = byKey.get(t.sourceKey!);
       if (saved) restored[t.id] = { status: saved.status === "linked" ? "linked" : "classified", nature: saved.nature, costCenter: saved.costCenter, category: saved.category, note: restored[t.id]?.note || saved.note || "", linkedEntryId: saved.entryId || undefined };
+      else { const resolution = refundDecision(t, refundRecords); if (resolution) restored[t.id] = resolution; }
     }
     return restored;
   }
   async function activateStatement(input: CardStatement, original?: File, request = ++activationRequest.current) {
     const parsed = identifyStatement(input);
-    setBusy(true); setSelectedId(""); setSummaryOpen(false); setFilter("all"); setSearch(""); setWorkspaceView("review"); setIntegrationError("");
-    setStatement(parsed); setDecisions(restoredWithApplied(parsed, standalone ? workspaceRef.current.applied : [])); setRemoteApplied([]); setRegistryReady(standalone);
+    setBusy(true); setSelectedId(""); setRefundOpen(false); setSummaryOpen(false); setFilter("all"); setSearch(""); setWorkspaceView("review"); setIntegrationError("");
+    setStatement(parsed); setDecisions(restoredWithApplied(parsed, standalone ? workspaceRef.current.applied : [], {}, standalone ? workspaceRef.current.refunds || [] : [])); setRemoteApplied([]); setRemoteRefunds([]); setRefundsReady(standalone); setRegistryReady(standalone);
     if (pdfUrlRef.current) URL.revokeObjectURL(pdfUrlRef.current);
     pdfUrlRef.current = ""; setPdfUrl("");
     try {
@@ -152,7 +161,7 @@ export default function CardStatements({ entries, centers = previewCenters, cate
       if (request !== activationRequest.current || cancelled.current) return;
       if (file && !cancelled.current) { const url = URL.createObjectURL(file); pdfUrlRef.current = url; setPdfUrl(url); }
       if (!standalone && loadApplied) {
-        try { const records = await loadApplied(statementCardKey(parsed), parsed.dueDate); if (!cancelled.current && request === activationRequest.current) { setRemoteApplied(records.applied); setDecisions(restoredWithApplied(parsed, records.applied, records.drafts)); setRegistryReady(true); } }
+        try { const records = await loadApplied(statementCardKey(parsed), parsed.dueDate); if (!cancelled.current && request === activationRequest.current) { setRemoteApplied(records.applied); setRemoteRefunds(records.refunds || []); setRefundsReady(Boolean(records.refundsReady)); setDecisions(restoredWithApplied(parsed, records.applied, records.drafts, records.refunds || [])); setRegistryReady(true); } }
         catch (e) { if (request === activationRequest.current) setIntegrationError(errorMessage(e)); }
       }
     } finally { if (!cancelled.current && request === activationRequest.current) setBusy(false); }
@@ -167,7 +176,7 @@ export default function CardStatements({ entries, centers = previewCenters, cate
     const focusable = () => [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary')];
     focusable()[0]?.focus();
     const trapFocus = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !applying && !(removeOpen && busy)) { setSelectedId(""); setSummaryOpen(false); setRemoveOpen(false); }
+      if (event.key === "Escape" && !applying && !(removeOpen && busy)) { if (refundOpen) setRefundOpen(false); else { setSelectedId(""); setSummaryOpen(false); setRemoveOpen(false); } }
       if (event.key !== "Tab") return;
       const items = focusable(), first = items[0], last = items.at(-1);
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
@@ -175,7 +184,7 @@ export default function CardStatements({ entries, centers = previewCenters, cate
     };
     document.addEventListener("keydown", trapFocus);
     return () => { document.body.style.overflow = previousOverflow; document.removeEventListener("keydown", trapFocus); if (previousFocus?.isConnected) previousFocus.focus(); };
-  }, [selectedId, summaryOpen, removeOpen, applying, busy]);
+  }, [selectedId, summaryOpen, removeOpen, refundOpen, applying, busy]);
   async function loadFile(file: File) {
     const request = ++activationRequest.current;
     setBusy(true); setError(""); setNotice("");
@@ -231,6 +240,7 @@ export default function CardStatements({ entries, centers = previewCenters, cate
   function saveDecision(decision: ReviewDecision) {
     if (!statement || !selected) return;
     if (appliedByKey.has(selected.sourceKey!)) { setError("Este item já foi processado. Consulte o lançamento gerado para alterar os dados financeiros."); return; }
+    if (refundDecision(selected, refunds)) { setError("Esta movimentação está encerrada por estorno e não pode gerar outra despesa."); return; }
     if (decision.status === "classified" && (!decision.nature || !decision.costCenter || !decision.category)) { setError("Escolha PJ ou PF, centro de custo e categoria para validar."); return; }
     if (decision.status === "classified" && (!draftCenters.includes(decision.costCenter) || !draftCategories.includes(decision.category))) { setError("Confira o centro de custo e a categoria selecionados."); return; }
     if (decision.status === "classified" && matches[selected.id]?.matches.length && !decision.confirmedNew) { setError("Confirme o vínculo sugerido ou marque que esta é uma nova despesa."); return; }
@@ -243,6 +253,28 @@ export default function CardStatements({ entries, centers = previewCenters, cate
     try { localStorage.setItem(storageKey(statement), JSON.stringify({ version: 1, fingerprint: statement.fingerprint, decisions: next })); setNotice("Conferência salva neste navegador. Nenhuma despesa foi criada no sistema."); }
     catch { setNotice("A conferência está nesta sessão; o navegador não permitiu salvar o rascunho."); }
     setSelectedId("");
+  }
+  function recognizePurchase() {
+    if (!statement || !selected || appliedByKey.has(selected.sourceKey!) || refundDecision(selected, refunds)) return;
+    const next = { ...decisions, [selected.id]: { ...emptyDecision(), note: draft.note } };
+    try { localStorage.setItem(storageKey(statement), JSON.stringify({ version: 1, fingerprint: statement.fingerprint, decisions: next })); }
+    catch { setNotice("A alteração está nesta sessão; o navegador não permitiu salvar o rascunho."); }
+    setDecisions(next); setDraft(next[selected.id]); setError("");
+  }
+  async function saveRefund(refund: CardRefund) {
+    if (!statement || !selected || busy || applyingRef.current) throw new Error("Aguarde a operação atual terminar.");
+    validateCardRefund(refund, appliedRecords, refunds);
+    if (!standalone && (!refundsReady || !onSaveRefund)) throw new Error("O registro de estornos ainda não foi habilitado no banco deste ambiente.");
+    applyingRef.current = true; setApplying(true);
+    try {
+      const saved = standalone ? refund : await onSaveRefund!(refund);
+      const nextRefunds = [...refunds.filter(r => r.sourceKey !== saved.sourceKey), saved];
+      if (standalone) persistWorkspace({ ...workspaceRef.current, refunds: nextRefunds });
+      else setRemoteRefunds(nextRefunds);
+      setDecisions(restoredWithApplied(statement, appliedRecords, {}, nextRefunds));
+      setRefundOpen(false); setSelectedId(""); setError("");
+      setNotice(`Compra marcada como estornada${standalone ? " neste navegador" : " no sistema"}. A ocorrência foi encerrada sem criar despesa ou receita.${saved.creditSourceKey ? " O crédito vinculado não será usado para abater outra despesa." : " O cancelamento foi registrado sem crédito vinculado."}`);
+    } finally { applyingRef.current = false; setApplying(false); }
   }
   async function confirmImport() {
     if (!plan || busy || applyingRef.current || !registryReady || (!standalone && !onConfirm)) return;
@@ -272,7 +304,7 @@ export default function CardStatements({ entries, centers = previewCenters, cate
   }
   const card = <CreditCard size={21} />;
   const content = <div className="cs-workspace">
-    <div className="cs-heading"><div><div className="cs-eyebrow"><span /> CONTROLE DO CARTÃO</div><h1>Clareza em cada compra.</h1><p>Confira sua fatura e dê um destino a cada despesa.</p></div><div className="cs-heading-actions">{standalone && <button className="cs-button cs-secondary" disabled={busy} onClick={() => comparisonInput.current?.click()}><FolderOpen size={16} /> Carregar lançamentos</button>}<button className="cs-button cs-primary" disabled={busy} onClick={() => fileInput.current?.click()}>{busy ? <LoaderCircle size={16} className="cs-spin" /> : <Upload size={16} />} {busy ? "Lendo fatura…" : "Importar fatura"}</button></div></div>
+    <div className="cs-heading"><div><div className="cs-eyebrow"><span /> CONTROLE DO CARTÃO</div><h1>Clareza em cada compra.</h1><p>Confira sua fatura e dê um destino a cada despesa.</p></div><div className="cs-heading-actions">{standalone && <button className="cs-button cs-secondary" disabled={busy} onClick={() => comparisonInput.current?.click()}><FolderOpen size={16} /> Carregar lançamentos</button>}<button className="cs-button cs-primary" disabled={busy || applying} onClick={() => fileInput.current?.click()}>{busy ? <LoaderCircle size={16} className="cs-spin" /> : <Upload size={16} />} {busy ? "Lendo fatura…" : "Importar fatura"}</button></div></div>
     <div className="cs-preview-note"><LockKeyhole size={15} /><span><strong>{standalone ? "Ambiente local." : "Conferência de faturas."}</strong> {standalone ? "A leitura e os lançamentos gerados ficam neste navegador, sem alterar produção." : "A leitura ocorre no navegador. Somente a confirmação cria novas despesas no sistema."}</span></div>
     <input ref={fileInput} hidden type="file" accept="application/pdf,.pdf" aria-label="Importar PDF da fatura" onChange={e => { const f = e.target.files?.[0]; if (f) void loadFile(f); e.target.value = ""; }} />
     <input ref={comparisonInput} hidden type="file" accept=".xlsx" aria-label="Carregar Excel de lançamentos" onChange={async e => { const f = e.target.files?.[0]; e.target.value = ""; if (!f) return; setBusy(true); setError(""); try { const rows = await readComparisonExcel(f); setBaseline(rows); setBaselineName(f.name); setNotice(`${rows.length} lançamentos carregados para comparação local. A cobertura depende do período e dos filtros da exportação.`); } catch (error) { setError(errorMessage(error)); } finally { setBusy(false); } }} />
@@ -288,7 +320,7 @@ export default function CardStatements({ entries, centers = previewCenters, cate
       <section className="cs-overview">
         <div className="cs-bank-card"><div className="cs-bank-card-top"><span className="cs-itau">itaú</span><span className="cs-card-caption">FATURA DO CARTÃO</span>{card}</div><div className="cs-card-number">•••• <span>{statement.cardLast4 || "Não identificado"}</span></div><div className="cs-card-bottom"><div><small>VENCIMENTO</small><strong>{dateLabel(statement.dueDate)}</strong></div><span className="cs-card-status"><Check size={12} /> PDF lido</span></div></div>
         <div className="cs-stat"><span>Movimentação da fatura <CircleHelp size={14} /></span><strong>{money(statement.computedCurrentCents)}</strong><small>{statement.transactions.filter(t => t.kind === "purchase").length} compras + encargos e créditos</small><div className="cs-stat-line"><FileCheck2 size={14} /> {statement.warnings.length ? "Leitura com pendências" : "Soma dos itens conferida"}</div></div>
-        <div className="cs-stat"><span>Pendente de validação <History size={14} /></span><strong>{pending}<em> / {current.length}</em></strong><small>{reviewed.length} {reviewed.length === 1 ? "item validado" : "itens validados"} nesta conferência</small><div className="cs-progress"><span style={{ width: `${current.length ? reviewed.length / current.length * 100 : 0}%` }} /></div></div>
+        <div className="cs-stat"><span>Pendente de validação <History size={14} /></span><strong>{pending}<em> / {current.length}</em></strong><small>{reviewed.length} {reviewed.length === 1 ? "item validado" : "itens validados"}{refunded.length ? ` · ${refunded.length} estornada(s)` : ""}</small><div className="cs-progress"><span style={{ width: `${current.length ? resolved.length / current.length * 100 : 0}%` }} /></div></div>
         <button className={`cs-stat cs-alert-stat ${unrecognized.length ? "cs-has-alert" : ""}`} onClick={() => setFilter("unrecognized")}><span>Compras não reconhecidas <ShieldQuestion size={15} /></span><strong>{unrecognized.length.toString().padStart(2, "0")}</strong><small>{unrecognized.length ? "Sinalizadas para apuração" : "Nenhuma sinalizada por você"}</small><div className="cs-stat-line">Acompanhar ocorrências <ArrowRight size={14} /></div></button>
       </section>
       <div className="cs-summary-strip"><FileText size={16} /><span>Total a pagar: <strong>{statement.invoiceTotalCents === null ? "Não identificado" : money(statement.invoiceTotalCents)}</strong></span><i /> <span>Saldo anterior: <strong>{statement.previousBalanceCents === null ? "—" : money(statement.previousBalanceCents)}</strong></span><i /><span>Pagamentos: <strong>{statement.paymentsTotalCents === null ? "—" : money(statement.paymentsTotalCents)}</strong></span>{pdfUrl ? <a href={pdfUrl} target="_blank" rel="noreferrer">Ver PDF original <ArrowRight size={13} /></a> : <span>Reimporte o PDF para consultar o original.</span>}</div>
@@ -296,11 +328,11 @@ export default function CardStatements({ entries, centers = previewCenters, cate
       {statement.warnings.map((w, i) => <div className="cs-message cs-message-warning" role="alert" key={i}><AlertCircle size={17} /><span>{w}</span></div>)}
       {workspaceView === "entries" ? <GeneratedCardEntries entries={generatedEntries} standalone={standalone} onBack={() => setWorkspaceView("review")} /> : <div className="cs-main-grid"><section className="cs-panel cs-transactions"><header className="cs-panel-heading"><div><h2>Conferência da fatura <span>{current.length}</span></h2><p>Valide os itens e confira possíveis lançamentos existentes.</p></div><span className="cs-file-chip"><FileText size={13} /> {statement.pageCount} páginas</span></header>
         <div className={`cs-comparison-note ${sourceEntries ? "cs-comparison-ready" : ""}`}><Landmark size={17} /><div><strong>{sourceEntries ? `${sourceEntries.filter(e => !e.kind || e.kind.toLowerCase() === "despesa").length} despesas ${standalone ? "na base local de comparação" : "consultadas automaticamente no sistema"}` : "Aguardando os lançamentos do sistema"}</strong><p>{standalone ? "Esta comparação usa lançamentos locais e o Excel opcional. Os dados de produção não são consultados." : "A comparação considera as despesas acessíveis nesta sessão. Confirme os vínculos sugeridos para evitar duplicação."}</p></div></div>
-        <div className="cs-filter-row"><div className="cs-tabs" role="tablist" aria-label="Filtrar movimentações">{([["all", "Todos", current.length], ["pending", "A validar", pending], ["matches", "Correspondências", current.filter(t => matches[t.id]?.matches.length).length], ["reviewed", "Validados", reviewed.length], ["unrecognized", "Não reconhecidas", unrecognized.length]] as const).map(([value, label, count]) => <button key={value} role="tab" aria-selected={filter === value} onClick={() => setFilter(value)} className={filter === value ? "cs-tab-active" : ""}>{label}<span>{count}</span></button>)}</div><label className="cs-search"><Search size={15} /><input aria-label="Buscar compra" placeholder="Buscar compra…" value={search} onChange={e => setSearch(e.target.value)} /></label></div>
-        <div className="cs-extra-filters"><select aria-label="Tipo de visualização" value={filter} onChange={e => setFilter(e.target.value as Filter)}><option value="all">Movimentações atuais</option><option value="pending">Pendentes de validação</option><option value="new" disabled={!sourceEntries}>Sem correspondência na base</option><option value="matches">Possíveis correspondências</option><option value="reviewed">Validados</option><option value="unrecognized">Não reconhecidos</option><option value="future">Parcelas de próximas faturas</option><option value="payments">Pagamentos da fatura</option></select><small>{filter === "future" || filter === "payments" ? "Exibidos separadamente; não entram nas despesas atuais." : `${filtered.length} ${filtered.length === 1 ? "item" : "itens"} nesta visualização`}</small></div>
+        <div className="cs-filter-row"><div className="cs-tabs" role="tablist" aria-label="Filtrar movimentações">{([["all", "Todos", current.length], ["pending", "A validar", pending], ["matches", "Correspondências", current.filter(t => matches[t.id]?.matches.length).length], ["reviewed", "Validados", reviewed.length], ["unrecognized", "Não reconhecidas", unrecognized.length], ["refunded", "Estornadas", refunded.length]] as const).map(([value, label, count]) => <button key={value} role="tab" aria-selected={filter === value} onClick={() => setFilter(value)} className={filter === value ? "cs-tab-active" : ""}>{label}<span>{count}</span></button>)}</div><label className="cs-search"><Search size={15} /><input aria-label="Buscar compra" placeholder="Buscar compra…" value={search} onChange={e => setSearch(e.target.value)} /></label></div>
+        <div className="cs-extra-filters"><select aria-label="Tipo de visualização" value={filter} onChange={e => setFilter(e.target.value as Filter)}><option value="all">Movimentações atuais</option><option value="pending">Pendentes de validação</option><option value="new" disabled={!sourceEntries}>Sem correspondência na base</option><option value="matches">Possíveis correspondências</option><option value="reviewed">Validados</option><option value="unrecognized">Não reconhecidos</option><option value="refunded">Estornadas</option><option value="future">Parcelas de próximas faturas</option><option value="payments">Pagamentos da fatura</option></select><small>{filter === "future" || filter === "payments" ? "Exibidos separadamente; não entram nas despesas atuais." : `${filtered.length} ${filtered.length === 1 ? "item" : "itens"} nesta visualização`}</small></div>
         <div className="cs-table-scroll"><table className="cs-table"><thead><tr><th>DATA</th><th>ESTABELECIMENTO / DESCRIÇÃO</th><th>VALOR</th><th>SITUAÇÃO</th><th><span className="cs-sr-only">Ação</span></th></tr></thead><tbody>{pageItems.map(t => {
           const d = decisions[t.id], status = stateLabel(t, d, matches[t.id], appliedByKey.get(t.sourceKey!));
-          return <tr key={t.id} className="cs-clickable-row" onClick={() => { if (busy) return; setSelectedId(t.id); setError(""); }}>
+          return <tr key={t.id} className="cs-clickable-row" onClick={() => { if (busy || applying) return; setDraft(decisions[t.id] || emptyDecision()); setSelectedId(t.id); setError(""); }}>
             <td className="cs-date">{dateLabel(t.date).slice(0, 5)}<small>{t.date.slice(0, 4)}</small></td>
             <td><button className="cs-merchant"><span className={`cs-merchant-icon ${t.kind === "credit" || t.kind === "payment" ? "cs-credit-icon" : ""}`}>{t.kind === "credit" || t.kind === "payment" ? <ArrowDownLeft size={17} /> : t.kind === "fee" ? <Landmark size={17} /> : <ReceiptText size={17} />}</span><span><strong>{t.description}</strong><small>{d?.costCenter ? `${d.nature || "Sem natureza"} · ${d.costCenter} · ${d.category}` : `${kindLabel[t.kind]}${t.installment ? ` · parcela ${t.installment}` : ""}${t.detail ? ` · ${t.detail}` : ""}`}</small></span></button></td>
             <td className={`cs-value ${t.amountCents < 0 ? "cs-credit-value" : ""}`}>{money(t.amountCents)}</td>
@@ -327,13 +359,16 @@ export default function CardStatements({ entries, centers = previewCenters, cate
         </div>
         <footer className="cs-table-footer"><span><LockKeyhole size={13} /> Rascunho salvo somente neste navegador</span><span>Total atual <strong>{money(statement.computedCurrentCents)}</strong></span></footer>
       </section>
-      <aside className="cs-side-panels"><section className="cs-panel cs-distribution"><div className="cs-section-kicker">DESTINO DOS RECURSOS</div><h2>Para onde vai o dinheiro?</h2><p>A distribuição aparece conforme você valida os itens.</p><div className="cs-distribution-total"><span>Total da movimentação</span><strong>{money(statement.computedCurrentCents)}</strong></div>{([{ key: "PJ", label: "Pessoa jurídica", caption: "Despesas da empresa", Icon: Building2, tone: "blue" }, { key: "PF", label: "Pessoa física", caption: "Despesas pessoais", Icon: UserRound, tone: "purple" }, { key: "pending", label: "A distribuir", caption: "Aguardando validação", Icon: History, tone: "gray" }] as const).map(({ key, label, caption, Icon, tone }) => <div className="cs-distribution-row" key={key}><span className={`cs-distribution-icon cs-icon-${tone}`}><Icon size={17} /></span><div><strong>{label}</strong><small>{caption}</small></div><b>{money(classificationTotals[key])}</b></div>)}<div className="cs-distribution-bar">{(["PJ", "PF", "pending"] as const).map(k => <span key={k} className={`cs-bar-${k}`} style={{ flex: Math.max(0, classificationTotals[k]), minWidth: classificationTotals[k] > 0 ? 3 : 0 }} />)}</div><p className="cs-distribution-note">Créditos e ajustes reduzem os valores do grupo em que forem classificados.</p><button className="cs-button cs-primary cs-full" disabled={busy || applying} onClick={() => setSummaryOpen(true)}>Revisar distribuição <ArrowRight size={15} /></button></section>
+      <aside className="cs-side-panels"><section className="cs-panel cs-distribution"><div className="cs-section-kicker">DESTINO DOS RECURSOS</div><h2>Para onde vai o dinheiro?</h2><p>A distribuição aparece conforme você valida os itens.</p><div className="cs-distribution-total"><span>Total da movimentação</span><strong>{money(statement.computedCurrentCents)}</strong></div>{([{ key: "PJ", label: "Pessoa jurídica", caption: "Despesas da empresa", Icon: Building2, tone: "blue" }, { key: "PF", label: "Pessoa física", caption: "Despesas pessoais", Icon: UserRound, tone: "purple" }, { key: "pending", label: "A distribuir", caption: "Aguardando validação", Icon: History, tone: "gray" }, ...(resolved.length > reviewed.length ? [{ key: "refunded" as const, label: "Encerradas por estorno", caption: "Compra e crédito mantidos no histórico", Icon: CheckCircle2, tone: "green" }] : [])] as const).map(({ key, label, caption, Icon, tone }) => <div className="cs-distribution-row" key={key}><span className={`cs-distribution-icon cs-icon-${tone}`}><Icon size={17} /></span><div><strong>{label}</strong><small>{caption}</small></div><b>{money(classificationTotals[key])}</b></div>)}<div className="cs-distribution-bar">{(["PJ", "PF", "pending", "refunded"] as const).map(k => <span key={k} className={`cs-bar-${k}`} style={{ flex: Math.max(0, classificationTotals[k]), minWidth: classificationTotals[k] > 0 ? 3 : 0 }} />)}</div><p className="cs-distribution-note">Créditos e ajustes reduzem os valores do grupo em que forem classificados. Estornos encerrados ficam separados, sem alterar o total original do PDF.</p><button className="cs-button cs-primary cs-full" disabled={busy || applying} onClick={() => setSummaryOpen(true)}>Revisar distribuição <ArrowRight size={15} /></button></section>
       <section className="cs-guide"><span className="cs-guide-icon"><ShieldQuestion size={21} /></span><h3>Uma compra chamou atenção?</h3><p>Abra o item e marque <strong>“Não reconheço”</strong> para deixá-lo em apuração.</p><small>Uma pendência de lançamento, sozinha, não comprova fraude.</small></section>
       <section className="cs-next-statement"><CalendarIcon /><div><strong>Parcelas futuras separadas</strong><p>{statement.transactions.filter(t => t.kind === "future").length} itens previstos, sem somar às despesas desta fatura.</p><button onClick={() => setFilter("future")}>Consultar parcelas <ArrowRight size={13} /></button></div></section>
       </aside></div>}
     </>}
-    {selected && <div className="cs-modal-backdrop" onClick={e => { if (e.target === e.currentTarget) setSelectedId(""); }}><section role="dialog" aria-modal="true" aria-labelledby="cs-review-title" className="cs-review-dialog" onKeyDown={e => { if (e.key === "Escape") setSelectedId(""); }}><header><div><div className="cs-eyebrow">CONFERÊNCIA DO ITEM</div><h2 id="cs-review-title">Validar movimentação</h2></div><button aria-label="Fechar conferência" onClick={() => setSelectedId("")}><X size={20} /></button></header><div className="cs-dialog-body"><div className="cs-selected-purchase"><span>{kindLabel[selected.kind]} · {dateLabel(selected.date)}{selected.installment ? ` · parcela ${selected.installment}` : ""}</span><h3>{selected.description}</h3><strong>{money(selected.amountCents)}</strong>{selected.detail && <p>{selected.detail}</p>}<small>Origem: página {selected.page} do PDF</small></div>
-      {selectedApplied ? <div className="cs-message"><CheckCircle2 size={18} /><span>{selectedApplied.status === "offset" ? "Este item foi compensado pelos créditos da mesma classificação e não gerou uma despesa adicional." : !selectedApplied.entryId ? "O lançamento associado foi removido. Revise o histórico; a reimportação não recria essa despesa automaticamente." : "Este item já está vinculado a um lançamento. Para alterar dados financeiros, consulte o lançamento gerado."}</span></div> : selected.kind === "future" || selected.kind === "payment" ? <div className="cs-message"><FileText size={18} /><span>{selected.kind === "future" ? "Esta parcela pertence a uma próxima fatura. A data exibida é a data original da compra; o vencimento futuro ainda precisa ser confirmado." : "Este é um pagamento da fatura. Ele não cria uma segunda despesa para as compras já relacionadas."}</span></div> : <>
+    {selected && !refundOpen && <div className="cs-modal-backdrop" onClick={e => { if (e.target === e.currentTarget) setSelectedId(""); }}><section role="dialog" aria-modal="true" aria-labelledby="cs-review-title" className="cs-review-dialog" onKeyDown={e => { if (e.key === "Escape") setSelectedId(""); }}><header><div><div className="cs-eyebrow">CONFERÊNCIA DO ITEM</div><h2 id="cs-review-title">Validar movimentação</h2></div><button aria-label="Fechar conferência" onClick={() => setSelectedId("")}><X size={20} /></button></header><div className="cs-dialog-body"><div className="cs-selected-purchase"><span>{kindLabel[selected.kind]} · {dateLabel(selected.date)}{selected.installment ? ` · parcela ${selected.installment}` : ""}</span><h3>{selected.description}</h3><strong>{money(selected.amountCents)}</strong>{selected.detail && <p>{selected.detail}</p>}<small>Origem: página {selected.page} do PDF</small></div>
+      {selectedApplied ? <div className="cs-message"><CheckCircle2 size={18} /><span>{selectedApplied.status === "offset" ? "Este item foi compensado pelos créditos da mesma classificação e não gerou uma despesa adicional." : !selectedApplied.entryId ? "O lançamento associado foi removido. Revise o histórico; a reimportação não recria essa despesa automaticamente." : "Este item já está vinculado a um lançamento. Para alterar dados financeiros, consulte o lançamento gerado."}</span></div> : selected.kind === "future" || selected.kind === "payment" ? <div className="cs-message"><FileText size={18} /><span>{selected.kind === "future" ? "Esta parcela pertence a uma próxima fatura. A data exibida é a data original da compra; o vencimento futuro ainda precisa ser confirmado." : "Este é um pagamento da fatura. Ele não cria uma segunda despesa para as compras já relacionadas."}</span></div> : decisions[selected.id]?.refund ? <div className="cs-message"><CheckCircle2 size={18} /><span>{refundDescription(decisions[selected.id].refund!, decisions[selected.id].status === "refund_credit")} Esta movimentação está encerrada e não gera despesa ou receita.</span></div> : decisions[selected.id]?.status === "unrecognized" ? <>
+      <div className="cs-inline-note"><ShieldQuestion size={18} /><span>Esta compra está em apuração e não gerou despesa. Você pode mantê-la pendente, reconhecê-la para classificar ou registrar um estorno confirmado pelo banco.</span></div>
+      <label className="cs-form-label">Observação <span>(opcional)</span><textarea aria-label="Observação da apuração" maxLength={1000} value={draft.note} onChange={e => setDraft({ ...draft, note: e.target.value })} /></label>
+      </> : <>
       {sourceEntries === null || sourceEntries === undefined ? <div className="cs-inline-note"><CircleHelp size={16} /> Sem base de comparação. A classificação abaixo é um rascunho; ainda não sabemos se esta despesa já foi lançada.</div> : !matches[selected.id]?.matches.length && <div className="cs-inline-note"><Search size={16} /> Não encontramos correspondência na base carregada. Confira o período e os filtros antes de criar uma despesa.</div>}
       {!!matches[selected.id]?.matches.length && <div className="cs-match-section"><h3>{matches[selected.id].status === "ambiguous" ? "Possível duplicidade: confira os candidatos" : "Lançamentos possivelmente correspondentes"}</h3>{matches[selected.id].matches.slice(0, 8).map(m => <div key={m.entry.id} className="cs-match-card"><strong>{m.entry.description}</strong><span>{dateLabel(m.entry.date)} · {money(Math.round(m.entry.amount * 100))} · {m.entry.unit || "Sem centro"}</span><small>{m.reason}</small><button onClick={() => saveDecision({ ...emptyDecision(), status: "linked", linkedEntryId: m.entry.id, costCenter: m.entry.unit || "", category: m.entry.category || "", nature: normalizeStatementText(m.entry.unit || "") === "pessoa fisica" ? "PF" : "", note: draft.note })}>Confirmar vínculo existente <Check size={13} /></button></div>)}</div>}
       {!!matches[selected.id]?.matches.length && <label className="cs-confirm-new"><input type="checkbox" checked={Boolean(draft.confirmedNew)} onChange={e => setDraft({ ...draft, confirmedNew: e.target.checked })} />Esta é uma nova despesa, diferente dos lançamentos sugeridos.</label>}
@@ -344,7 +379,8 @@ export default function CardStatements({ entries, centers = previewCenters, cate
       <label className="cs-form-label">Observação <span>(opcional)</span><textarea aria-label="Observação da conferência" value={draft.note} maxLength={1000} placeholder="Contexto da compra ou motivo da sinalização…" onChange={e => setDraft({ ...draft, note: e.target.value })} /></label>
       {error && <div role="alert" className="cs-message cs-message-error">{error}</div>}
       </>}
-      <details className="cs-source"><summary>Conferir linha extraída do PDF</summary><p>{selected.sourceLine}</p>{pdfUrl && <a href={`${pdfUrl}#page=${selected.page}`} target="_blank" rel="noreferrer">Abrir página original <ArrowRight size={12} /></a>}</details></div><footer>{selectedApplied || selected.kind === "future" || selected.kind === "payment" ? <button className="cs-button cs-primary" onClick={() => setSelectedId("")}>Entendi</button> : <><button className="cs-button cs-danger-button" onClick={() => saveDecision({ ...emptyDecision(), status: "unrecognized", note: draft.note })}><ShieldQuestion size={16} /> Não reconheço</button><button className="cs-button cs-primary" disabled={!draft.nature || !draft.costCenter || !draft.category || Boolean(matches[selected.id]?.matches.length && !draft.confirmedNew)} onClick={() => saveDecision({ ...draft, status: "classified", linkedEntryId: undefined })}><Check size={16} /> Validar classificação</button></>}</footer></section></div>}
+      <details className="cs-source"><summary>Conferir linha extraída do PDF</summary><p>{selected.sourceLine}</p>{pdfUrl && <a href={`${pdfUrl}#page=${selected.page}`} target="_blank" rel="noreferrer">Abrir página original <ArrowRight size={12} /></a>}</details></div><footer>{selectedApplied || selected.kind === "future" || selected.kind === "payment" ? <button className="cs-button cs-primary" onClick={() => setSelectedId("")}>Entendi</button> : decisions[selected.id]?.refund ? <>{decisions[selected.id].status === "refunded" && <button className="cs-button cs-secondary" onClick={() => setRefundOpen(true)}>Detalhar estorno</button>}<button className="cs-button cs-primary" onClick={() => setSelectedId("")}>Entendi</button></> : decisions[selected.id]?.status === "unrecognized" ? <><button className="cs-button cs-secondary" onClick={() => saveDecision({ ...emptyDecision(), status: "unrecognized", note: draft.note })}>Manter em apuração</button><button className="cs-button cs-secondary" onClick={recognizePurchase}>Reconhecer compra</button>{selected.amountCents > 0 && <button className="cs-button cs-primary" onClick={() => setRefundOpen(true)}>Marcar como estornada</button>}</> : <><button className="cs-button cs-danger-button" onClick={() => saveDecision({ ...emptyDecision(), status: "unrecognized", note: draft.note })}><ShieldQuestion size={16} /> Não reconheço</button><button className="cs-button cs-primary" disabled={!draft.nature || !draft.costCenter || !draft.category || Boolean(matches[selected.id]?.matches.length && !draft.confirmedNew)} onClick={() => saveDecision({ ...draft, status: "classified", linkedEntryId: undefined })}><Check size={16} /> Validar classificação</button></>}</footer></section></div>}
+    {refundOpen && selected && <CardRefundDialog key={selected.sourceKey} purchase={selected} initial={refunds.find(r => r.sourceKey === selected.sourceKey)} credits={availableRefundCredits(workspace.statements.flatMap(s => identifyStatement(s).transactions), selected, appliedRecords, refunds).map(transaction => ({ transaction, dueDate: JSON.parse(transaction.sourceKey!)[1] }))} saving={applying} ready={standalone || Boolean(refundsReady && onSaveRefund)} onClose={() => setRefundOpen(false)} onSave={saveRefund} />}
     {removeOpen && statement && <div className="cs-modal-backdrop" onClick={e => { if (e.target === e.currentTarget && !busy) setRemoveOpen(false); }}>
       <section role="dialog" aria-modal="true" aria-labelledby="cs-remove-title" aria-describedby="cs-remove-description" className="cs-review-dialog cs-remove-dialog">
         <header><div><div className="cs-eyebrow">FATURA IMPORTADA</div><h2 id="cs-remove-title">Remover esta fatura?</h2></div><button aria-label="Cancelar remoção" disabled={busy} onClick={() => setRemoveOpen(false)}><X size={20} /></button></header>
@@ -360,7 +396,7 @@ export default function CardStatements({ entries, centers = previewCenters, cate
       <section role="dialog" aria-modal="true" aria-labelledby="cs-summary-title" className="cs-review-dialog" onKeyDown={e => { if (e.key === "Escape" && !applying) setSummaryOpen(false); }}>
         <header><div><div className="cs-eyebrow">RESUMO DA CONFERÊNCIA</div><h2 id="cs-summary-title">Distribuição da fatura</h2></div><button aria-label="Fechar resumo" disabled={applying} onClick={() => setSummaryOpen(false)}><X size={20} /></button></header>
         <div className="cs-dialog-body">
-          <div className="cs-summary-counts"><span><strong>{reviewed.length}</strong> validados</span><span><strong>{pending}</strong> pendentes</span><span><strong>{unrecognized.length}</strong> não reconhecidos</span></div>
+          <div className="cs-summary-counts"><span><strong>{reviewed.length}</strong> validados</span><span><strong>{pending}</strong> pendentes</span><span><strong>{unrecognized.length}</strong> não reconhecidos</span><span><strong>{refunded.length}</strong> estornadas</span></div>
           <div className="cs-summary-groups">{effectiveCenters.map(center => {
             const items = current.filter(t => reviewIsComplete(t, decisions[t.id]) && decisions[t.id]?.costCenter === center);
             return items.length ? <div key={center}><span><strong>{center}</strong><small>{items.length} itens</small></span><b>{money(items.reduce((s, t) => s + t.amountCents, 0))}</b></div> : null;

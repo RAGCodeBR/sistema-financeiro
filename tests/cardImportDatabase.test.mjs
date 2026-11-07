@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { before, after, test } from "node:test";
 import { readFile } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
-import { buildStatementImportPlan, importPayload } from "../src/lib/cardImport.ts";
+import { buildStatementImportPlan, identifyStatement, importPayload } from "../src/lib/cardImport.ts";
 
 const userId = "11111111-1111-4111-8111-111111111111";
 const otherId = "22222222-2222-4222-8222-222222222222";
@@ -12,7 +12,7 @@ const statement = (extra = {}) => ({ fingerprint: "a".repeat(64), fileName: "tes
 const classified = (extra = {}) => ({ status: "classified", nature: "PJ", costCenter: "Consultoria", category: "Software", note: "", confirmedNew: true, ...extra });
 const payload = (s = statement(), decisions = { one: classified() }) => importPayload(buildStatementImportPlan(s, decisions, []));
 const confirm = async p => (await db.query("select public.confirm_card_statement($1::jsonb) result", [JSON.stringify(p)])).rows[0].result;
-async function reset() { await db.exec("reset role; truncate public.card_import_items, public.card_import_statements, public.entries cascade; set role authenticated;"); await db.query("select set_config('request.jwt.claim.sub',$1,false)", [userId]); }
+async function reset() { await db.exec("reset role; truncate public.card_refund_events, public.card_refund_reviews, public.card_import_items, public.card_import_statements, public.entries cascade; set role authenticated;"); await db.query("select set_config('request.jwt.claim.sub',$1,false)", [userId]); }
 
 before(async () => {
   db = new PGlite();
@@ -23,7 +23,7 @@ before(async () => {
   let schema = await readFile(new URL("../supabase/schema.sql", import.meta.url), "utf8");
   schema = schema.replace("create extension if not exists pgcrypto;", "");
   await db.exec(schema);
-  for (const name of ["20261005190000_counterparties.sql", "20261006150000_expense_interest.sql", "20261106190000_card_statement_import.sql"]) await db.exec(await readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), "utf8"));
+  for (const name of ["20261005190000_counterparties.sql", "20261006150000_expense_interest.sql", "20261106190000_card_statement_import.sql", "20261106210000_card_refund_reviews.sql"]) await db.exec(await readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), "utf8"));
   await db.query("insert into auth.users(id,email) values($1,'one@example.test'),($2,'two@example.test')", [userId, otherId]);
   await db.query("update public.profiles set allowed_units = array['Consultoria'] where id = $1", [userId]);
   await db.query("update public.profiles set allowed_units = array['Marketing'] where id = $1", [otherId]);
@@ -138,4 +138,80 @@ test("import ledger is protected from direct writes and hidden across unauthoriz
   await db.query("select set_config('request.jwt.claim.sub',$1,false)", [otherId]);
   assert.equal((await db.query("select * from public.card_import_items")).rows.length, 0);
   await assert.rejects(confirm(payload()), /sem acesso/);
+});
+
+const refundKey = (s = statement(), index = 0) => JSON.parse(identifyStatement(s).transactions[index].sourceKey);
+const recordRefund = async (extra = {}) => (await db.query("select public.record_card_refund($1::jsonb) result", [JSON.stringify({ source_key: refundKey(), amount_cents: 10000, refund_date: "2026-11-06", note: "Cancelamento confirmado", ...extra })])).rows[0].result;
+
+test("SQL records an unrecognized purchase as refunded without creating or deleting financial entries", async () => {
+  await reset(); await confirm(payload(statement(), { one: classified({ status: "unrecognized" }) }));
+  const saved = await recordRefund();
+  assert.equal(saved.amount_cents, 10000); assert.equal(saved.refund_date, "2026-11-06");
+  assert.equal((await db.query("select count(*)::int n from public.entries")).rows[0].n, 0);
+  // Even a stale browser trying to classify the purchase cannot create it.
+  assert.equal((await confirm(payload())).created_entries.length, 0);
+  assert.equal((await db.query("select count(*)::int n from public.card_refund_events")).rows[0].n, 1);
+  await recordRefund();
+  assert.equal((await db.query("select count(*)::int n from public.card_refund_events")).rows[0].n, 1);
+});
+test("SQL excludes a paired refund credit from unrelated expenses in the same invoice", async () => {
+  await reset();
+  const s = statement({ transactions: [tx(), tx("credit", -10000, { description: "ESTORNO" }), tx("other", 20000, { description: "OUTRA COMPRA" })], currentTotalCents: 20000, computedCurrentCents: 20000, invoiceTotalCents: 20000 });
+  await recordRefund({ credit_source_key: refundKey(s, 1) });
+  const result = await confirm(payload(s, { one: classified(), credit: classified(), other: classified() }));
+  assert.equal(result.created_entries.length, 1);
+  assert.equal(result.created_entries[0].description, "OUTRA COMPRA");
+  assert.equal(result.created_entries[0].amount, 200);
+});
+test("SQL protects a linked credit in a later invoice and preserves signed invoice math", async () => {
+  await reset();
+  const next = statement({ fingerprint: "b".repeat(64), dueDate: "2026-12-15", transactions: [tx("credit", -10000, { description: "ESTORNO" }), tx("other", 20000, { description: "OUTRA COMPRA" })] });
+  await recordRefund({ credit_source_key: refundKey(next, 0) });
+  // A stale client that still allocates the credit must refresh its review.
+  await assert.rejects(confirm(payload(next, { credit: classified(), other: classified() })), /líquidos/);
+  const registered = { sourceKey: JSON.stringify(refundKey()), amountCents: 10000, date: "2026-11-06", note: "", creditSourceKey: JSON.stringify(refundKey(next, 0)) };
+  const result = await confirm(importPayload(buildStatementImportPlan(next, { other: classified() }, [], [], [registered])));
+  assert.equal(result.created_entries.length, 1); assert.equal(result.created_entries[0].amount, 200);
+  assert.equal((await confirm(payload())).created_entries.length, 0);
+  const bad = payload(next, { other: classified() }); bad.statement.current_total_cents = 20000;
+  await assert.rejects(confirm(bad), /dados financeiros|soma/);
+});
+test("SQL rejects invalid refund amounts, dates, kinds and credits without partial state", async () => {
+  await reset();
+  await assert.rejects(recordRefund({ amount_cents: 5000 }), /integral/);
+  await assert.rejects(recordRefund({ refund_date: "2026-11-01" }), /Data/);
+  await assert.rejects(recordRefund({ source_key: refundKey(statement({ transactions: [tx("credit", -10000)] })) }), /origem/);
+  const wrongCard = statement({ cardLast4: "9999", maskedCardNumber: "1234XXXXXXXX9999", transactions: [tx("credit", -10000)] });
+  await assert.rejects(recordRefund({ credit_source_key: refundKey(wrongCard) }), /mesmo cartão/);
+  assert.equal((await db.query("select count(*)::int n from public.card_refund_reviews")).rows[0].n, 0);
+  assert.equal((await db.query("select count(*)::int n from public.card_refund_events")).rows[0].n, 0);
+});
+test("SQL cannot mark a financial entry or a consumed credit as refunded", async () => {
+  await reset(); await confirm(payload());
+  await assert.rejects(recordRefund(), /processada/);
+  await reset();
+  const s = statement({ transactions: [tx(), tx("credit", -10000)] , currentTotalCents: 0, computedCurrentCents: 0, invoiceTotalCents: 0 });
+  await confirm(payload(s, { one: classified(), credit: classified() }));
+  const fresh = statement({ dueDate: "2026-12-15", fingerprint: "c".repeat(64) });
+  await assert.rejects(recordRefund({ source_key: refundKey(fresh), credit_source_key: refundKey(s, 1) }), /crédito já foi processado/);
+});
+test("SQL prohibits double use of a refund credit and audits later linking", async () => {
+  await reset();
+  const credit = refundKey(statement({ dueDate: "2026-12-15", transactions: [tx("credit", -10000)] }));
+  await recordRefund(); await recordRefund({ credit_source_key: credit });
+  const otherPurchase = refundKey(statement({ transactions: [tx("other", 10000, { description: "OUTRA COMPRA" })] }));
+  await assert.rejects(recordRefund({ source_key: otherPurchase, credit_source_key: credit }), /outra compra/);
+  const events = (await db.query("select before_state,after_state from public.card_refund_events order by id")).rows;
+  assert.equal(events.length, 2); assert.equal(events[0].before_state, null);
+  assert.equal(events[1].before_state.credit_source_key, null); assert.deepEqual(events[1].after_state.credit_source_key, credit);
+});
+test("SQL refund records and their audit history are isolated by owner and reject direct writes", async () => {
+  await reset(); await recordRefund();
+  await assert.rejects(db.query("delete from public.card_refund_reviews"), /permission denied/);
+  await assert.rejects(db.query("update public.card_refund_events set actor=$1", [otherId]), /permission denied/);
+  await db.query("select set_config('request.jwt.claim.sub',$1,false)", [otherId]);
+  assert.equal((await db.query("select * from public.card_refund_reviews")).rows.length, 0);
+  assert.equal((await db.query("select * from public.card_refund_events")).rows.length, 0);
+  await assert.rejects(recordRefund(), /outro usuário/);
+  await assert.rejects(confirm(payload()), /outro usuário/);
 });
