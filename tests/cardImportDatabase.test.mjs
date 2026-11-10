@@ -78,6 +78,16 @@ test("SQL isolates different cards with otherwise identical purchases", async ()
   const result = await confirm(payload(statement({ fingerprint: "c".repeat(64), cardLast4: "9999", maskedCardNumber: "1234XXXXXXXX9999" })));
   assert.equal(result.created_entries.length, 1);
 });
+test("SQL accepts confirmed generic-bank statements and preserves the bank in source identities", async () => {
+  await reset();
+  const s = statement({ bankCode: "bradesco", bankName: "Bradesco", readingMethod: "assisted", reviewedExtraction: true, cardLast4: "6677", maskedCardNumber: undefined });
+  const result = await confirm(payload(s));
+  assert.equal(result.created_entries.length, 1);
+  assert.equal(result.created_entries[0].card_key, "bradesco:6677");
+  assert.equal(result.created_entries[0].card_source_key[0], "bradesco:6677");
+  assert.equal(result.created_entries[0].amount, 100);
+  assert.equal((await confirm(payload(s))).created_entries.length, 0);
+});
 test("SQL derives paid status from the document instead of a client flag", async () => {
   await reset();
   const s = statement({ invoiceTotalCents: 0, paymentsTotalCents: -10000, transactions: [tx(), tx("pay", -10000, { kind: "payment", date: "2026-11-05" })] });

@@ -39,7 +39,7 @@ export async function cachedStatementFile(scope: string, fingerprint: string): P
   try {
     return await new Promise((resolve, reject) => {
       const request = db.transaction("files").objectStore("files").get(`${scope}:${fingerprint}`);
-      request.onsuccess = () => resolve(request.result instanceof Blob ? new File([request.result], request.result instanceof File ? request.result.name : "fatura.pdf", { type: "application/pdf" }) : null);
+      request.onsuccess = () => resolve(request.result instanceof Blob ? new File([request.result], request.result instanceof File ? request.result.name : "fatura.pdf", { type: request.result.type || "application/pdf" }) : null);
       request.onerror = () => reject(request.error);
     });
   } finally { db.close(); }

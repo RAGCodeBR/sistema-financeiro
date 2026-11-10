@@ -17,10 +17,38 @@ function figmaAssetResolver() {
   }
 }
 
+function localOcrAssets() {
+  const coreDir = path.resolve(__dirname, 'node_modules/tesseract.js-core')
+  const assets = new Map<string, string>([
+    ['worker.min.js', path.resolve(__dirname, 'node_modules/tesseract.js/dist/worker.min.js')],
+    ['worker.min.js.LICENSE.txt', path.resolve(__dirname, 'node_modules/tesseract.js/dist/worker.min.js.LICENSE.txt')],
+    ['tesseract-LICENSE.txt', path.resolve(__dirname, 'node_modules/tesseract.js/LICENSE.md')],
+    ['tesseract-core-LICENSE.txt', path.resolve(__dirname, 'node_modules/tesseract.js-core/LICENSE')],
+    ['por.traineddata.gz', path.resolve(__dirname, 'node_modules/@tesseract.js-data/por/4.0.0_best_int/por.traineddata.gz')],
+    ...fs.readdirSync(coreDir).filter(name => /^tesseract-core.*\.wasm(?:\.js)?$/.test(name)).map(name => [name, path.join(coreDir, name)] as [string, string]),
+  ])
+  return {
+    name: 'local-ocr-assets',
+    configureServer(server) {
+      server.middlewares.use('/ocr/', (req, res, next) => {
+        const name = (req.url || '').split('?')[0].replace(/^\//, '')
+        const file = assets.get(name)
+        if (!file) return next()
+        res.setHeader('Content-Type', name.endsWith('.js') ? 'text/javascript' : name.endsWith('.wasm') ? 'application/wasm' : 'application/octet-stream')
+        fs.createReadStream(file).pipe(res)
+      })
+    },
+    generateBundle() {
+      for (const [name, file] of assets) this.emitFile({ type: 'asset', fileName: `ocr/${name}`, source: fs.readFileSync(file) })
+    },
+  }
+}
+
 export default defineConfig({
   // Relative paths keep the app functional on GitHub Pages project sites.
   base: './',
   plugins: [
+    localOcrAssets(),
     {
       name: 'local-statement-preview',
       configureServer(server) {

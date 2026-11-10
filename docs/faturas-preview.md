@@ -1,4 +1,4 @@
-# Conferência local de faturas Itaú
+# Conferência local de faturas de cartão
 
 Execute `npm install` e `npm run dev:faturas`. A prévia abre em
 <http://127.0.0.1:5173/?preview=faturas>, sem login e sem conexão ao Supabase.
@@ -6,7 +6,9 @@ O parâmetro de prévia está disponível somente no servidor de desenvolvimento
 
 ## Usar a prévia
 
-1. Importe o PDF Itaú com texto selecionável. Se houver uma amostra em
+1. Selecione ou arraste PDF, PNG, JPG ou WebP para a área de importação. O
+   modelo Itaú validado com texto selecionável mantém a leitura direta;
+   outros modelos e imagens passam pela conferência assistida. Se houver uma amostra em
    `.local/fatura-itau.pdf`, o servidor local a carrega automaticamente.
 2. Confira vencimento, total das movimentações, saldo anterior, pagamentos e
    total a pagar. Os totais precisam fechar; divergências aparecem como avisos.
@@ -37,8 +39,8 @@ O parâmetro de prévia está disponível somente no servidor de desenvolvimento
    a rotina transacional do banco, quando a migração estiver habilitada.
 8. Use os seletores **Cartão** e **Fatura** para alternar os documentos já
    importados. Os cartões são identificados pela numeração mascarada e banco;
-   cada ciclo mantém sua própria origem. Importar um novo PDF adiciona uma
-   fatura à biblioteca, sem substituir outras. O PDF original é guardado em
+   cada ciclo mantém sua própria origem. Importar um novo arquivo adiciona uma
+   fatura à biblioteca, sem substituir outras. O documento original é guardado em
    IndexedDB, separado por usuário, para reabrir ao trocar de cartão.
 
 A criação considera apenas itens validados. Compras não reconhecidas e itens
@@ -132,9 +134,51 @@ IOF consolidado usa o vencimento da fatura como referência e indica isso
 no detalhe do item. Créditos entram com sinal negativo, sem virar novas
 despesas positivas.
 
-O leitor foi desenvolvido e conferido com o modelo Itaú fornecido. Outros
-layouts, cartões adicionais e PDFs digitalizados precisam de novas amostras
-e validação; OCR e conexão bancária não fazem parte desta versão.
+O leitor específico foi desenvolvido e conferido com o modelo Itaú fornecido.
+Outros layouts usam extração genérica e conferência assistida. Nubank PF/PJ
+ainda precisa das amostras reais para ganhar um leitor específico validado.
+O tipo do cartão não determina a classificação PJ/PF das compras.
+
+## Importação por arquivos, imagens e leitura assistida
+
+A área de arrastar recebe até 10 arquivos e 100 MB por lote, com limite de
+25 MB por arquivo. A fila mostra o resultado de cada arquivo, pausa quando
+é necessária conferência e continua após confirmar ou cancelar aquele arquivo.
+Um erro de arquivo não descarta os seguintes. Cada arquivo corresponde a uma
+fatura: para uma fatura fotografada em várias páginas, reúna todas em um PDF.
+
+PDFs com texto usam PDF.js; páginas sem camada textual e imagens PNG, JPG e
+WebP usam OCR em português no navegador. São aceitas até 100 páginas por PDF,
+das quais até 20 podem exigir OCR, e imagens de até 40 megapixels. PDFs com
+senha precisam ser desbloqueados; HEIC precisa ser exportado para JPG.
+**Cancelar lote** interrompe a leitura e cancela os itens restantes da fila.
+
+Tesseract.js, o motor e o modelo de idioma são dependências versionadas. O
+Vite serve/copia esses recursos em `ocr/` no mesmo site, respeitando o caminho
+do GitHub Pages. Os documentos não são enviados a APIs de OCR nem a IA externa;
+nenhuma chave adicional de serviço é necessária. A leitura de imagens pode
+demorar mais que a leitura de um PDF textual.
+
+A conferência assistida exibe original e texto extraído e permite escolher
+um cartão existente ou conferir banco, final, vencimento, nome do cartão e
+identificação mascarada, sem cadastrar o número completo. Permite corrigir,
+incluir e remover itens, ajustar datas, tipos, valores, parcelas e páginas,
+com paginação. Datas curtas só recebem ano após haver contexto de vencimento.
+Totais ausentes ficam vazios; a soma extraída não vira silenciosamente o
+total do documento. A conclusão exige confirmação explícita de que todas as
+páginas e linhas foram conferidas e valida a soma dos itens e o resumo.
+Pagamentos e parcelas futuras permanecem separados, e créditos têm sinal
+negativo. PDFs com vários cartões identificados exigem separação por cartão.
+
+Depois dessa revisão, a fatura entra no fluxo normal de classificação PJ/PF,
+comparação e confirmação de lançamentos. A leitura assistida não garante
+interpretação automática de todo modelo: linhas sem padrão ou texto ruim
+podem exigir correção manual ou uma nova imagem. A confirmação financeira
+continua nas mesmas funções e validações do Supabase; esta mudança não exige
+nova migração. Cartões sem identidade visual usam um desenho neutro com banco,
+nome opcional, final e vencimento. Relatórios usam o banco correto no título
+e no nome do arquivo. As decisões são recuperadas ao reimportar um arquivo
+já conferido, inclusive quando sua leitura inicial foi por imagem.
 
 ## Banco de dados e ativação
 

@@ -1,6 +1,7 @@
 import { currentTransactions, reviewIsComplete, reviewIsResolved, type CardStatement, type ReviewDecision, type StatementTransaction } from "./cardStatement";
 import { refundDescription } from "./cardRefund";
 import { getStatementPayment, type AppliedStatementItem } from "./cardImport";
+import { statementBankLabel } from "./cardBanks";
 
 export type CardReviewExportOptions = {
   statement: CardStatement;
@@ -57,7 +58,7 @@ export async function exportCardReviewExcel(options: CardReviewExportOptions) {
   const { statement } = options, report = buildReport(options);
   const summary = workbook.addWorksheet("Resumo");
   summary.columns = [{ width: 34 }, { width: 105 }];
-  summary.addRow(["FinCore | Conferência da fatura Itaú"]);
+  summary.addRow([`FinCore | Conferência da fatura ${statementBankLabel(statement)}`]);
   summary.addRow(["Situação", localReviewNotice]);
   summary.addRow(["Cartão (final)", statement.cardLast4 || "Não identificado"]);
   summary.addRow(["Vencimento da fatura", formatDate(statement.dueDate)]);
@@ -65,6 +66,7 @@ export async function exportCardReviewExcel(options: CardReviewExportOptions) {
   summary.addRow(["Pagamento identificado", payment.state === "paid" ? `Pago em ${formatDate(payment.paidDate)}` : payment.state === "open" ? "A pagar" : "Não comprovado - previsto"]);
   summary.addRow(["Evidência do pagamento", payment.explanation]);
   summary.addRow(["Arquivo de origem", statement.fileName]);
+  summary.addRow(["Leitura do documento", statement.reviewedExtraction ? "Dados conferidos na leitura assistida" : "Modelo validado"]);
   for (const [label, cents] of [
     ["Movimentações atuais", statement.computedCurrentCents], ["Total a pagar", statement.invoiceTotalCents],
     ["Saldo da fatura anterior", statement.previousBalanceCents], ["Pagamentos efetuados", statement.paymentsTotalCents],
@@ -113,7 +115,7 @@ export async function exportCardReviewExcel(options: CardReviewExportOptions) {
   addTransactions("Pagamentos", report.payments);
   addTransactions("Parcelas futuras", report.future);
   const buffer = await workbook.xlsx.writeBuffer();
-  download(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), `conferencia-itau-${statement.dueDate}.xlsx`);
+  download(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), `conferencia-${statement.bankCode || "itau"}-${statement.dueDate}.xlsx`);
   return workbook;
 }
 
@@ -166,11 +168,11 @@ export async function exportCardReviewPdf(options: CardReviewExportOptions) {
   if (report.future.length) table("Parcelas futuras - fora das despesas atuais", ["Data original da compra", "Descrição", "Valor", "Parcela", "Página do PDF"], report.future.map(r => [r.date, r.description, money(Math.round(r.value * 100)), r.installment, r.page]));
   for (let page = 1; page <= doc.getNumberOfPages(); page++) {
     doc.setPage(page); doc.setFillColor(23, 39, 68); doc.rect(0, 0, 297, 25, "F");
-    doc.setFont("helvetica", "bold"); doc.setTextColor(255, 255, 255); doc.setFontSize(15); doc.text("FinCore | Conferência da fatura Itaú", 13, 11);
+    doc.setFont("helvetica", "bold"); doc.setTextColor(255, 255, 255); doc.setFontSize(15); doc.text(`FinCore | Conferência da fatura ${statementBankLabel(statement)}`, 13, 11);
     doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.text(`Cartão final ${statement.cardLast4 || "não identificado"} | Vencimento: ${formatDate(statement.dueDate)}`, 13, 19);
     doc.setTextColor(130, 143, 161); doc.setFontSize(8); doc.text("FinCore - relatório de conferência de fatura", 13, 202); doc.text(`${page} / ${doc.getNumberOfPages()}`, 284, 202, { align: "right" });
   }
-  doc.save(`conferencia-itau-${statement.dueDate}.pdf`);
+  doc.save(`conferencia-${statement.bankCode || "itau"}-${statement.dueDate}.pdf`);
   return doc;
 }
 

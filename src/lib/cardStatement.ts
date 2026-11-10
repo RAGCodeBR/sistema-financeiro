@@ -15,6 +15,10 @@ export type CardStatement = {
   previousBalanceCents: number | null; paymentsTotalCents: number | null;
   computedCurrentCents: number; warnings: string[];
   bankCode?: string; maskedCardNumber?: string;
+  bankName?: string; cardLabel?: string;
+  readingMethod?: "validated" | "assisted" | "ocr";
+  reviewedExtraction?: boolean;
+  sourceType?: "pdf" | "image";
 };
 export type ComparisonEntry = {
   id: string; kind?: string; description: string; beneficiary?: string;
