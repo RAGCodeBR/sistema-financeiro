@@ -3978,10 +3978,10 @@ function App() {
     [editingCategory, setEditingCategory] = useState<Category | null>(null),
     [deletingCategory, setDeletingCategory] = useState<Category | null>(null),
     [editing, setEditing] = useState<Entry | null>(null),
-    [receiptEntry, setReceiptEntry] = useState<Entry | null>(null),
-    [receiptDate, setReceiptDate] = useState(""),
-    [receiptSaving, setReceiptSaving] = useState(false),
-    [receiptError, setReceiptError] = useState(""),
+    [settlementEntry, setSettlementEntry] = useState<Entry | null>(null),
+    [settlementDate, setSettlementDate] = useState(""),
+    [settlementSaving, setSettlementSaving] = useState(false),
+    [settlementError, setSettlementError] = useState(""),
     [scopeDialog, setScopeDialog] = useState<{
       entry: Entry;
       action: "editar" | "excluir";
@@ -4817,10 +4817,10 @@ function App() {
       void refreshContacts();
     },
     settle = async (x: Entry) => {
-      if (x.kind === "receita" && x.status === "previsto") {
-        setReceiptEntry(x);
-        setReceiptDate(todayStr);
-        setReceiptError("");
+      if (x.status === "previsto") {
+        setSettlementEntry(x);
+        setSettlementDate(todayStr);
+        setSettlementError("");
         return;
       }
       await persistSettlement(x);
@@ -4965,21 +4965,21 @@ function App() {
       { id: "relatorios", text: "Relatórios", Icon: BarChart3 },
       { id: "usuarios", text: "Usuários", Icon: Menu },
     ];
-  const confirmReceipt = async () => {
-    if (!receiptEntry || receiptSaving) return;
-    if (!receiptDate || receiptDate > todayStr) {
-      setReceiptError("Informe uma data de recebimento válida, até hoje.");
+  const confirmSettlement = async () => {
+    if (!settlementEntry || settlementSaving) return;
+    if (!settlementDate || settlementDate > todayStr) {
+      setSettlementError(`Informe uma data de ${settlementEntry.kind === "despesa" ? "pagamento" : "recebimento"} válida, até hoje.`);
       return;
     }
-    setReceiptSaving(true);
-    setReceiptError("");
+    setSettlementSaving(true);
+    setSettlementError("");
     try {
-      await persistSettlement(receiptEntry, receiptDate);
-      setReceiptEntry(null);
+      await persistSettlement(settlementEntry, settlementDate);
+      setSettlementEntry(null);
     } catch (error) {
-      setReceiptError(error instanceof Error ? error.message : "Não foi possível confirmar o recebimento.");
+      setSettlementError(error instanceof Error ? error.message : "Não foi possível confirmar a baixa.");
     } finally {
-      setReceiptSaving(false);
+      setSettlementSaving(false);
     }
   };
   return (
@@ -6140,59 +6140,59 @@ function App() {
           save={save}
         />
       )}{" "}
-      {receiptEntry && (
+      {settlementEntry && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 p-4">
           <form
             role="dialog"
             aria-modal="true"
-            aria-labelledby="receipt-dialog-title"
+            aria-labelledby="settlement-dialog-title"
             onSubmit={(event) => {
               event.preventDefault();
-              void confirmReceipt();
+              void confirmSettlement();
             }}
             className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
           >
-            <h2 id="receipt-dialog-title" className="text-xl font-medium text-slate-900">
-              Confirmar recebimento
+            <h2 id="settlement-dialog-title" className="text-xl font-medium text-slate-900">
+              Confirmar {settlementEntry.kind === "despesa" ? "pagamento" : "recebimento"}
             </h2>
             <p className="mt-2 text-sm text-slate-600">
-              Confira a data em que recebeu <strong>{receiptEntry.title}</strong> antes de dar baixa.
+              Confira a data em que {settlementEntry.kind === "despesa" ? "pagou" : "recebeu"} <strong>{settlementEntry.description}</strong> antes de dar baixa.
             </p>
             <p className="mt-3 text-sm text-slate-600">
-              Data prevista: <strong>{new Date(`${receiptEntry.date}T12:00:00`).toLocaleDateString("pt-BR")}</strong>
+              Data prevista: <strong>{new Date(`${settlementEntry.date}T12:00:00`).toLocaleDateString("pt-BR")}</strong>
             </p>
-            <label htmlFor="receipt-date" className="mt-5 block text-sm font-semibold text-slate-800">
-              Data recebida
+            <label htmlFor="settlement-date" className="mt-5 block text-sm font-semibold text-slate-800">
+              Data {settlementEntry.kind === "despesa" ? "do pagamento" : "do recebimento"}
             </label>
             <input
-              id="receipt-date"
+              id="settlement-date"
               type="date"
               required
               max={todayStr}
-              value={receiptDate}
+              value={settlementDate}
               onChange={(event) => {
-                setReceiptDate(event.target.value);
-                setReceiptError("");
+                setSettlementDate(event.target.value);
+                setSettlementError("");
               }}
               className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3 text-slate-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
               autoFocus
             />
-            {receiptError && <p role="alert" className="mt-2 text-sm text-red-600">{receiptError}</p>}
+            {settlementError && <p role="alert" className="mt-2 text-sm text-red-600">{settlementError}</p>}
             <div className="mt-6 flex justify-end gap-3">
               <button
                 type="button"
-                disabled={receiptSaving}
-                onClick={() => setReceiptEntry(null)}
+                disabled={settlementSaving}
+                onClick={() => setSettlementEntry(null)}
                 className="rounded-xl border border-slate-300 px-4 py-2.5 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
               >
                 Cancelar
               </button>
               <button
                 type="submit"
-                disabled={receiptSaving}
+                disabled={settlementSaving}
                 className="rounded-xl bg-blue-600 px-4 py-2.5 font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
               >
-                {receiptSaving ? "Salvando..." : "Confirmar baixa"}
+                {settlementSaving ? "Salvando..." : "Confirmar baixa"}
               </button>
             </div>
           </form>
