@@ -29,6 +29,7 @@ import { CountUp, CurrencyInput, Month, fmt, labelMonth, moneyInput, parseMoney 
 import TeamNotesScreen from "./TeamNotes";
 import BanksSection from "./Banks";
 import CardStatements from "./CardStatements";
+import Nfse from "./Nfse";
 import { confirmRemoteCardStatement, loadRemoteCardItems, saveRemoteCardRefund } from "../lib/cardImportRemote";
 import { sourceKeyString } from "../lib/cardImport";
 import { snapshotFile, unreadableFileMessage } from "../lib/files";
@@ -164,6 +165,7 @@ const toggleableScreens: { id: string; label: string }[] = [
   { id: "lancamentos", label: "Lançamentos" },
   { id: "contas", label: "Contas" },
   { id: "faturas", label: "Cartões e faturas" },
+  { id: "nfse", label: "NFS-e" },
   { id: "categorias", label: "Plano de contas" },
   { id: "contatos", label: "Fornecedores/clientes" },
   { id: "relatorios", label: "Relatórios" },
@@ -4261,6 +4263,7 @@ function App() {
     if (!currentUser) return true;
     if (currentUser.role === "master") return true;
     if (id === "usuarios") return false;
+    if (id === "nfse") return currentUser.canManageIncome && !(currentUser.hiddenScreens ?? []).includes("nfse");
     if (id === "faturas") return !(currentUser.hiddenScreens ?? []).some(screen => screen === "faturas" || screen === "lancamentos");
     if (id === "relatorios" && !currentUser.canViewReports) return false;
     // Aba opcional: só aparece para quem foi liberado (além do Master).
@@ -4275,7 +4278,7 @@ function App() {
     const fallback = ["dashboard", "lancamentos", "contas", "categorias", "contatos", "relatorios"].find(screenAllowed);
     if (fallback && fallback !== screen) setScreen(fallback);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser?.id, currentUser?.hiddenScreens, currentUser?.canViewReports, screen]);
+  }, [currentUser?.id, currentUser?.hiddenScreens, currentUser?.canViewReports, currentUser?.canManageIncome, screen]);
   const loadUsers = async () => {
     const { data } = await supabase
       .from("profiles")
@@ -4959,6 +4962,7 @@ function App() {
       { id: "lancamentos", text: "Lançamentos", Icon: ReceiptText },
       { id: "contas", text: "Contas", Icon: Wallet },
       { id: "faturas", text: "Cartões e faturas", Icon: CreditCard },
+      { id: "nfse", text: "NFS-e", Icon: FileText },
       { id: "categorias", text: "Plano de contas", Icon: Tag },
       { id: "contatos", text: "Fornecedores/clientes", Icon: Building2 },
       { id: "notas", text: "Notas da equipe", Icon: FileText },
@@ -5101,6 +5105,8 @@ function App() {
                     ? "Contas"
                   : screen === "faturas"
                     ? "Cartões e faturas"
+                  : screen === "nfse"
+                    ? "NFS-e"
                     : screen === "categorias"
                       ? "Plano de contas"
                       : screen === "contatos"
@@ -5622,6 +5628,8 @@ function App() {
                 return result;
               }}
             />
+          ) : screen === "nfse" ? (
+            <Nfse key={currentUser.id} storageScope={currentUser.id} />
           ) : screen === "contatos" ? (
             <ContactsScreen
               contacts={contacts}
