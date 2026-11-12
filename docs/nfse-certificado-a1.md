@@ -56,7 +56,9 @@ Os arquivos `.local/icp-roots.pem`, `.local/icp-root-pins.json` e `.local/nfse-c
 
 O SQL transacional `.local/activate-nfse-certificate.sql` foi aplicado e a função `nfse-certificate` foi publicada. A verificação remota confirmou RLS e schema privado, RPCs exclusivas de `service_role`, rejeição de usuários anônimos e origens não autorizadas, sem cadastrar certificados ou alterar lançamentos financeiros.
 
-A gravação dos secrets foi recusada pelo Supabase por falta de permissão da conta conectada ao CLI. O envio permanece fechado até o ajuste desse acesso e a execução bem-sucedida do comando `secrets set` acima. Os valores públicos de CNPJ e origem de produção também estão definidos como padrão no servidor para permitir a consulta autenticada do estado de configuração; isso não substitui a chave privada de criptografia nem as raízes de confiança. A chave mestra não foi colocada no código, no banco ou no frontend.
+Os cinco secrets foram configurados no projeto após a liberação do acesso Owner. Os digests remotos foram conferidos com os valores locais, sem exibir os segredos. O formulário de upload fica disponível no sistema autenticado para usuários Master do FinCore. O perfil Owner do Supabase administra a infraestrutura e não substitui as permissões de usuário do FinCore.
+
+Os valores públicos de CNPJ e origem de produção também estão definidos como padrão no servidor para permitir a consulta autenticada do estado de configuração; isso não substitui a chave privada de criptografia nem as raízes de confiança. A chave mestra não foi colocada no código, no banco ou no frontend. Nenhum certificado real foi enviado como parte da ativação. A consulta de revogação e a emissão fiscal seguem pendentes.
 
 ## Rotação e recuperação
 
