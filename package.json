@@ -76,6 +76,7 @@
     "@electric-sql/pglite": "^0.5.15",
     "@tailwindcss/vite": "4.1.12",
     "@vitejs/plugin-react": "4.7.0",
+    "node-forge": "1.4.3",
     "supabase": "^2.119.0",
     "tailwindcss": "4.1.12",
     "vite": "6.3.5"

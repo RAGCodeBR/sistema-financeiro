@@ -4,3 +4,8 @@ dist/
 .env.local
 .DS_Store
 .local/
+.env.*
+*.pfx
+*.p12
+*.key
+*.key.pem

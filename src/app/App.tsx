@@ -30,6 +30,7 @@ import TeamNotesScreen from "./TeamNotes";
 import BanksSection from "./Banks";
 import CardStatements from "./CardStatements";
 import Nfse from "./Nfse";
+import { remoteNfseCertificateService } from "../lib/nfseCertificateRemote";
 import { confirmRemoteCardStatement, loadRemoteCardItems, saveRemoteCardRefund } from "../lib/cardImportRemote";
 import { sourceKeyString } from "../lib/cardImport";
 import { snapshotFile, unreadableFileMessage } from "../lib/files";
@@ -5629,7 +5630,7 @@ function App() {
               }}
             />
           ) : screen === "nfse" ? (
-            <Nfse key={currentUser.id} storageScope={currentUser.id} />
+            <Nfse key={currentUser.id} storageScope={currentUser.id} certificateService={remoteNfseCertificateService} canManageCertificate={currentUser.role === "master"} />
           ) : screen === "contatos" ? (
             <ContactsScreen
               contacts={contacts}

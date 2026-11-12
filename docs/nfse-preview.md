@@ -15,10 +15,10 @@ Prévia independente: `npm run dev -- --host 127.0.0.1 --port 5173`, depois `htt
 
 ## Limites desta etapa
 
-Não há emissão, numeração fiscal, validação tributária, assinatura, envio ao governo, consulta de situação, geração de XML/PDF fiscal, cancelamento fiscal, mensagens a clientes ou criação de lançamentos financeiros. Não há alterações de banco de dados ou novas dependências.
+Não há emissão, numeração fiscal, validação tributária, assinatura, envio ao governo, consulta de situação, geração de XML/PDF fiscal, cancelamento fiscal, mensagens a clientes ou criação de lançamentos financeiros. Os rascunhos continuam locais; a custódia do A1 adiciona uma migration e uma função de servidor próprias.
 
-O botão de importar A1 está desabilitado. Nenhum arquivo de certificado, senha ou token é solicitado ou armazenado no módulo. O botão de emitir também está desabilitado. Salvar a configuração não significa estar habilitado para emitir.
+A etapa de certificado agora possui uma integração segura preparada no servidor, documentada em [nfse-certificado-a1.md](nfse-certificado-a1.md). Na prévia independente, o envio permanece fechado. No sistema autenticado, depende da ativação da função, migration e segredos; certificado e senha não entram nos rascunhos do navegador. O botão de emitir continua desabilitado. Salvar a configuração não significa estar habilitado para emitir.
 
 ## Próxima etapa
 
-Receber inscrição municipal, regime tributário e XML/PDF de uma nota já emitida; confirmar habilitação do emissor e serviços utilizados; definir integração direta ou provedor fiscal; implementar armazenamento seguro do A1 e segredos no servidor, permissões e auditoria; validar homologação e só então habilitar produção. Os campos fiscais definitivos dependem do layout e regras aplicáveis.
+Receber inscrição municipal, regime tributário e configurações de serviço (uma nota anterior é uma referência opcional); confirmar habilitação do emissor; definir integração direta ou provedor fiscal; ativar o serviço seguro de certificado, configurar raízes e chaves e implementar a consulta de revogação; validar homologação e só então habilitar a emissão em produção. Os campos fiscais definitivos dependem do layout e regras aplicáveis.

@@ -30,7 +30,6 @@ import {
   Save,
   Search,
   Settings2,
-  ShieldCheck,
   Trash2,
   Upload,
   X,
@@ -47,6 +46,8 @@ import {
 } from "../lib/nfseDrafts";
 import { fmt, parseMoney } from "./shared";
 import "../styles/nfse.css";
+import NfseCertificate from "./NfseCertificate";
+import type { NfseCertificateService } from "../lib/nfseCertificate";
 
 const steps = [
   "Dados da empresa",
@@ -112,8 +113,12 @@ function Panel({
 
 export default function Nfse({
   storageScope = "local-preview",
+  certificateService,
+  canManageCertificate = false,
 }: {
   storageScope?: string;
+  certificateService?: NfseCertificateService;
+  canManageCertificate?: boolean;
 }) {
   // The parent keys the component by user ID; a login change never reuses drafts.
   const [load] = useState(() => {
@@ -390,8 +395,8 @@ export default function Nfse({
         <LockKeyhole />
         <p>
           <strong>Preparação local.</strong> Os rascunhos ficam neste navegador.
-          A emissão e o envio do certificado serão liberados após a integração
-          fiscal.
+          O certificado é gerenciado em uma conexão segura com o servidor.
+          A emissão fiscal continua em preparação.
         </p>
       </div>
       {error && (
@@ -559,58 +564,7 @@ export default function Nfse({
               title="Certificado digital A1"
               subtitle="O certificado será usado pelo serviço de emissão para assinar e transmitir as notas."
             >
-              <div className="nf-certificate">
-                <div className="nf-certificate-icon">
-                  <ShieldCheck />
-                </div>
-                <div>
-                  <span className="nf-tag nf-tag-amber">
-                    Aguardando integração
-                  </span>
-                  <h4>Conecte o certificado com segurança</h4>
-                  <p>
-                    A empresa já possui um A1. A importação do arquivo .pfx ou
-                    .p12 e a senha serão feitas em uma conexão protegida, quando
-                    a integração estiver disponível.
-                  </p>
-                  <button className="nf-button" disabled>
-                    <Upload /> Importar certificado A1
-                  </button>
-                  <small>
-                    O arquivo e a senha não são solicitados nem armazenados
-                    nesta prévia.
-                  </small>
-                </div>
-              </div>
-              <div className="nf-checklist">
-                <div>
-                  <FileCheck2 />
-                  <span>
-                    <b>Vínculo com o emissor</b>
-                    <small>
-                      CNPJ e titularidade serão verificados na integração.
-                    </small>
-                  </span>
-                </div>
-                <div>
-                  <KeyRound />
-                  <span>
-                    <b>Validade do certificado</b>
-                    <small>
-                      A data de vencimento será exibida após a validação.
-                    </small>
-                  </span>
-                </div>
-                <div>
-                  <LockKeyhole />
-                  <span>
-                    <b>Armazenamento protegido</b>
-                    <small>
-                      Acesso restrito ao serviço responsável pela emissão.
-                    </small>
-                  </span>
-                </div>
-              </div>
+              <NfseCertificate issuerCnpj={issuer.document} service={certificateService} canManage={canManageCertificate} />
             </Panel>
           )}
           {step === 2 && (
@@ -740,7 +694,7 @@ export default function Nfse({
                   <div>
                     <span>Regime tributário</span>
                     <b>{regimes[issuer.taxRegime] || "A confirmar"}</b>
-                    <small>Certificado A1 ainda não conectado</small>
+                    <small>Consulte o status do A1 na etapa Certificado digital</small>
                   </div>
                 </div>
               </Panel>

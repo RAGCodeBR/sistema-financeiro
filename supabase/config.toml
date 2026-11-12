@@ -4,6 +4,11 @@
 # working directory name when running `supabase init`.
 project_id = "sistema-financeiro"
 
+[functions.nfse-certificate]
+# New publishable keys are not legacy JWTs. The handler validates the user's
+# Bearer token with Auth.getUser and checks the current profile server-side.
+verify_jwt = false
+
 [api]
 enabled = true
 # Port to use for the API URL.

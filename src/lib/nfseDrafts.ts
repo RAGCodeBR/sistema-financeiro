@@ -180,6 +180,6 @@ export function pendingNfseSetup(workspace: NfseWorkspace): string[] {
   if (!workspace.issuer.taxRegime) missing.push("Regime tributário");
   if (!workspace.settings.serviceCode.trim()) missing.push("Código de serviço");
   if (!workspace.settings.issRate.trim()) missing.push("Tributação do serviço");
-  missing.push("Certificado A1 e integração fiscal");
+  missing.push("Integração fiscal e checagem de revogação do A1");
   return missing;
 }
