@@ -31,6 +31,7 @@ import BanksSection from "./Banks";
 import CardStatements from "./CardStatements";
 import Nfse from "./Nfse";
 import { remoteNfseCertificateService } from "../lib/nfseCertificateRemote";
+import { remoteNfseFiscalService } from "../lib/nfseFiscalRemote";
 import { confirmRemoteCardStatement, loadRemoteCardItems, saveRemoteCardRefund } from "../lib/cardImportRemote";
 import { sourceKeyString } from "../lib/cardImport";
 import { snapshotFile, unreadableFileMessage } from "../lib/files";
@@ -5630,7 +5631,7 @@ function App() {
               }}
             />
           ) : screen === "nfse" ? (
-            <Nfse key={currentUser.id} storageScope={currentUser.id} certificateService={remoteNfseCertificateService} canManageCertificate={currentUser.role === "master"} />
+            <Nfse key={currentUser.id} storageScope={currentUser.id} certificateService={remoteNfseCertificateService} fiscalService={remoteNfseFiscalService} canManageCertificate={currentUser.role === "master"} />
           ) : screen === "contatos" ? (
             <ContactsScreen
               contacts={contacts}

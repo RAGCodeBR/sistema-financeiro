@@ -1,0 +1,2 @@
+# Keep the official XSD files byte-for-byte identical to their published hashes.
+supabase/functions/nfse-fiscal/schemas/*.xsd -text whitespace=-blank-at-eol,cr-at-eol

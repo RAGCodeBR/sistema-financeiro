@@ -292,14 +292,21 @@ export default function NfseCertificate({
             </div>
             <div>
               <span>Revogação</span>
-              <b>Consulta pendente</b>
+              <b>
+                {current.revocationStatus === "good"
+                  ? "Conferida na última consulta"
+                  : current.revocationStatus === "revoked"
+                    ? "Certificado revogado"
+                    : "Consulta pendente"}
+              </b>
             </div>
           </div>
           <div className="nf-alert">
             <AlertCircle />
             <span>
-              A conferência de revogação ainda não foi executada. O cadastro do
-              A1 não autoriza nem habilita a emissão de notas.
+              {current.revocationStatus === "good"
+                ? "A revogação é conferida novamente antes de assinar ou transmitir uma DPS. A emissão em produção permanece bloqueada."
+                : "Use o teste de conexão na homologação para conferir a revogação atual. O cadastro do A1 não autoriza a emissão de notas em produção."}
             </span>
           </div>
         </>

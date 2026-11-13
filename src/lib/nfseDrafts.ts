@@ -52,7 +52,47 @@ export type NfseDraft = {
   amount: string;
   createdAt: string;
   updatedAt: string;
-};
+} & Partial<
+  Record<
+    | "serviceDate"
+    | "customerPostalCode"
+    | "customerStreet"
+    | "customerNumber"
+    | "customerComplement"
+    | "customerDistrict"
+    | "customerCity"
+    | "customerState"
+    | "customerMunicipalityCode"
+    | "serviceCity"
+    | "serviceMunicipalityCode"
+    | "serviceCode"
+    | "municipalServiceCode"
+    | "nbsCode"
+    | "issWithheld"
+    | "issRate"
+    | "federalRetention",
+    string
+  >
+>;
+export const nfseOperationDefaults = () => ({
+  serviceDate: "",
+  customerPostalCode: "",
+  customerStreet: "",
+  customerNumber: "",
+  customerComplement: "",
+  customerDistrict: "",
+  customerCity: "",
+  customerState: "",
+  customerMunicipalityCode: "",
+  serviceCity: "",
+  serviceMunicipalityCode: "",
+  serviceCode: "",
+  municipalServiceCode: "",
+  nbsCode: "",
+  issWithheld: "",
+  issRate: "",
+  federalRetention: "",
+});
 export type NfseWorkspace = {
   version: 1;
   fiscalReferenceVersion: number;
@@ -184,6 +224,7 @@ export function parseNfseWorkspace(raw: string | null): NfseWorkspace {
     seen.add(item.id);
     return knownStrings(
       {
+        ...nfseOperationDefaults(),
         id: "",
         customerName: "",
         customerDocument: "",

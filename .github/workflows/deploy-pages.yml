@@ -25,6 +25,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: node --experimental-strip-types --test tests/*.test.mjs
+      - name: Validate fiscal service container
+        run: docker build -f server/nfse/Dockerfile -t fincore-nfse:check .
       - run: npm run build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

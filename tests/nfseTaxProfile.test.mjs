@@ -96,6 +96,7 @@ test("unknown and unsupported assessments, special regimes and incomplete codes 
     { nbsCode: "" },
     { serviceCode: "17xyz" },
     { municipalServiceCode: "21" },
+    { municipalServiceCode: "000" },
     { issWithheld: "confirmar" },
     { simplesRate: "6e2" },
   ])

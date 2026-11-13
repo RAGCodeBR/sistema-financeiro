@@ -40,6 +40,7 @@ import {
   nfseStorageKey,
   parseNfseWorkspace,
   pendingNfseSetup,
+  nfseOperationDefaults,
   type NfseDraft,
   type NfseIssuer,
   type NfseSettings,
@@ -51,6 +52,13 @@ import NfseCertificate from "./NfseCertificate";
 import type { NfseCertificateService } from "../lib/nfseCertificate";
 import { NFSE_FISCAL_REFERENCE_VERSION } from "../lib/nfseFiscalReference";
 import { nfseFiscalIssues, omitIssRate } from "../lib/nfseTaxProfile";
+import type {
+  NfseFiscalService,
+  NfseFiscalState,
+} from "../lib/nfseFiscalRemote";
+import NfseHomologation from "./NfseHomologation";
+import { useNfseCustomerLookup } from "./useNfseCustomerLookup";
+import NfseServicePlace from "./NfseServicePlace";
 
 const steps = [
   "Dados da empresa",
@@ -118,10 +126,12 @@ export default function Nfse({
   storageScope = "local-preview",
   certificateService,
   canManageCertificate = false,
+  fiscalService,
 }: {
   storageScope?: string;
   certificateService?: NfseCertificateService;
   canManageCertificate?: boolean;
+  fiscalService?: NfseFiscalService;
 }) {
   // The parent keys the component by user ID; a login change never reuses drafts.
   const [load] = useState(() => {
@@ -155,7 +165,47 @@ export default function Nfse({
   const [menu, setMenu] = useState(false);
   const [info, setInfo] = useState(false);
   const [draft, setDraft] = useState<NfseDraft | null>(null);
+  const customerLookup = useNfseCustomerLookup(draft, setDraft);
   const [deleting, setDeleting] = useState<NfseDraft | null>(null);
+  const [cloud, setCloud] = useState<NfseFiscalState | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importSelection, setImportSelection] = useState<string[]>([]);
+  function acceptCloud(state: NfseFiscalState) {
+    setCloud(state);
+    setWorkspace({
+      version: 1,
+      ...state.config,
+      drafts: state.drafts.map((d) => d.payload),
+    });
+  }
+  useEffect(() => {
+    if (!fiscalService) return;
+    let cancelled = false;
+    setBusy(true);
+    fiscalService
+      .load()
+      .then((state) => {
+        if (!cancelled) {
+          acceptCloud(state);
+          setError("");
+        }
+      })
+      .catch((e) => {
+        if (!cancelled)
+          setError(
+            e instanceof Error
+              ? e.message
+              : "Não foi possível carregar os dados fiscais.",
+          );
+      })
+      .finally(() => {
+        if (!cancelled) setBusy(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [fiscalService]);
   const heading = useRef<HTMLHeadingElement>(null);
   const configButton = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -229,7 +279,66 @@ export default function Nfse({
     };
   }, [hasModal]);
 
-  function persist(next: NfseWorkspace, message: string) {
+  async function persist(next: NfseWorkspace, message: string) {
+    if (fiscalService) {
+      if (!cloud || busy) return false;
+      setBusy(true);
+      setError("");
+      try {
+        const { drafts: nextDrafts, version: _, ...config } = next;
+        const { drafts: oldDrafts, version: __, ...oldConfig } = workspace;
+        let state: NfseFiscalState;
+        if (JSON.stringify(config) !== JSON.stringify(oldConfig))
+          state = await fiscalService.execute({
+            action: "config",
+            config,
+            revision: cloud.configRevision,
+          });
+        else {
+          const removed = oldDrafts.find(
+            (d) => !nextDrafts.some((n) => n.id === d.id),
+          );
+          const changed = nextDrafts.find(
+            (d) =>
+              JSON.stringify(d) !==
+              JSON.stringify(oldDrafts.find((n) => n.id === d.id)),
+          );
+          if (removed)
+            state = await fiscalService.execute({
+              action: "remove",
+              id: removed.id,
+              revision: cloud.drafts.find((d) => d.payload.id === removed.id)
+                ?.revision,
+            });
+          else if (changed)
+            state = await fiscalService.execute({
+              action: "draft",
+              draft: changed,
+              revision:
+                cloud.drafts.find((d) => d.payload.id === changed.id)
+                  ?.revision ?? null,
+            });
+          else return true;
+        }
+        acceptCloud(state);
+        setNotice(
+          "Dados salvos no servidor. Nenhuma nota de produção foi emitida.",
+        );
+        return true;
+      } catch (e) {
+        setError(
+          e instanceof Error ? e.message : "O salvamento não foi concluído.",
+        );
+        try {
+          acceptCloud(await fiscalService.load());
+        } catch {
+          /* preserve form */
+        }
+        return false;
+      } finally {
+        setBusy(false);
+      }
+    }
     if (load.error) {
       setError(load.error);
       return false;
@@ -272,11 +381,11 @@ export default function Nfse({
     setSetup(null);
     setStep(0);
   }
-  function saveSetup(reviewed: boolean) {
+  async function saveSetup(reviewed: boolean) {
     if (!setup) return;
     const next = { ...setup, setupReviewed: reviewed || setup.setupReviewed };
     if (
-      persist(
+      await persist(
         next,
         "Configuração salva como rascunho neste navegador. A emissão fiscal continua indisponível.",
       )
@@ -290,6 +399,15 @@ export default function Nfse({
     }
     const now = new Date().toISOString();
     setDraft({
+      ...nfseOperationDefaults(),
+      serviceCode: workspace.settings.serviceCode,
+      municipalServiceCode:
+        fiscalService && cloud?.environment === 2
+          ? ""
+          : workspace.settings.municipalServiceCode,
+      nbsCode: workspace.settings.nbsCode,
+      issWithheld: workspace.settings.issWithheld,
+      issRate: workspace.settings.issRate,
       id: crypto.randomUUID(),
       customerName: "",
       customerDocument: "",
@@ -302,7 +420,7 @@ export default function Nfse({
     });
     setNotice("");
   }
-  function saveDraft() {
+  async function saveDraft() {
     if (!draft) return;
     if (!draft.customerName.trim()) {
       setError(
@@ -326,7 +444,7 @@ export default function Nfse({
       updatedAt: new Date().toISOString(),
     };
     if (
-      persist(
+      await persist(
         {
           ...workspace,
           drafts: [
@@ -392,6 +510,35 @@ export default function Nfse({
     </Field>
   );
 
+  if (fiscalService && !cloud)
+    return (
+      <section className="nfse">
+        <h2>NFS-e · homologação</h2>
+        <p role="status">
+          {busy
+            ? "Carregando dados seguros do servidor…"
+            : "O serviço fiscal não está disponível."}
+        </p>
+        {error && <p role="alert">{error}</p>}
+        <button
+          className="nf-button"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              acceptCloud(await fiscalService.load());
+              setError("");
+            } catch (e) {
+              setError(e instanceof Error ? e.message : "Falha ao carregar.");
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          Tentar novamente
+        </button>
+      </section>
+    );
   return (
     <section className="nfse" aria-label="Emissão de NFS-e">
       <div className="nf-heading">
@@ -408,17 +555,133 @@ export default function Nfse({
           </p>
         </div>
         <span className="nf-stage">
-          <span /> Em preparação
+          <span /> {fiscalService ? "Homologação" : "Em preparação"}
         </span>
       </div>
       <div className="nf-local-note">
         <LockKeyhole />
         <p>
-          <strong>Preparação local.</strong> Os rascunhos ficam neste navegador.
-          O certificado é gerenciado em uma conexão segura com o servidor. A
-          emissão fiscal continua em preparação.
+          {fiscalService ? (
+            <>
+              <strong>Ambiente de homologação.</strong> Rascunhos e histórico
+              ficam no servidor. Os testes usam o A1 por conexão segura. A
+              emissão em produção está bloqueada.
+            </>
+          ) : (
+            <>
+              <strong>Preparação local.</strong> Os rascunhos ficam neste
+              navegador. O certificado é gerenciado em uma conexão segura com o
+              servidor. A emissão fiscal continua em preparação.
+            </>
+          )}
         </p>
       </div>
+      {fiscalService && cloud && (
+        <>
+          {load.workspace.drafts.some(
+            (d) => !cloud.drafts.some((c) => c.payload.id === d.id),
+          ) && (
+            <div className="nf-alert">
+              <div>
+                <b>Há rascunhos antigos neste navegador.</b>
+                <p>
+                  Revise e selecione quais deseja copiar para o servidor. A
+                  cópia local será preservada.
+                </p>
+                <button
+                  className="nf-button"
+                  disabled={busy}
+                  onClick={() => setImporting(!importing)}
+                >
+                  Revisar rascunhos locais
+                </button>
+                {importing && (
+                  <div>
+                    {load.workspace.drafts
+                      .filter(
+                        (d) => !cloud.drafts.some((c) => c.payload.id === d.id),
+                      )
+                      .map((d) => (
+                        <label className="nf-import-row" key={d.id}>
+                          <input
+                            type="checkbox"
+                            checked={importSelection.includes(d.id)}
+                            onChange={(e) =>
+                              setImportSelection((old) =>
+                                e.target.checked
+                                  ? [...old, d.id]
+                                  : old.filter((id) => id !== d.id),
+                              )
+                            }
+                          />
+                          <span>
+                            {d.customerName} ·{" "}
+                            {d.customerDocument || "Documento pendente"} ·{" "}
+                            {d.amount || "Valor pendente"}
+                          </span>
+                        </label>
+                      ))}
+                    <button
+                      className="nf-button"
+                      disabled={busy || !importSelection.length}
+                      onClick={async () => {
+                        setBusy(true);
+                        try {
+                          for (const id of importSelection) {
+                            const item = load.workspace.drafts.find(
+                              (d) => d.id === id,
+                            );
+                            if (item)
+                              acceptCloud(
+                                await fiscalService.execute({
+                                  action: "draft",
+                                  draft: item,
+                                  revision: null,
+                                }),
+                              );
+                          }
+                          setImportSelection([]);
+                          setImporting(false);
+                          setNotice(
+                            "Rascunhos selecionados copiados. Complete e revise os dados antes de preparar a DPS.",
+                          );
+                        } catch (e) {
+                          setError(
+                            e instanceof Error
+                              ? e.message
+                              : "A cópia não foi concluída.",
+                          );
+                          try {
+                            acceptCloud(await fiscalService.load());
+                          } catch {
+                            /* retain local backup */
+                          }
+                        } finally {
+                          setBusy(false);
+                        }
+                      }}
+                    >
+                      Copiar selecionados para o servidor
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          <NfseHomologation
+            service={fiscalService}
+            state={cloud}
+            onChange={acceptCloud}
+            busy={busy}
+            onBusy={setBusy}
+            onError={setError}
+            onEditDraft={(value) => {
+              setDraft({ ...value });
+              setNotice("");
+            }}
+          />
+        </>
+      )}
       {(setup || workspace).fiscalReferenceVersion <
         NFSE_FISCAL_REFERENCE_VERSION && (
         <div className="nf-alert">
@@ -659,7 +922,7 @@ export default function Nfse({
                       maxLength={60}
                     />
                   </Field>
-                  <Field label="Código de serviço municipal">
+                  <Field label="Código de serviço municipal (opcional)">
                     <input
                       value={settings.municipalServiceCode}
                       onChange={(event) =>
@@ -893,36 +1156,48 @@ export default function Nfse({
                 </div>
                 {fiscalIssues.length === 0 && (
                   <p className="nf-fiscal-ready">
-                    Configuração fiscal preparada para revisão. O envio ao
-                    governo permanece desabilitado.
+                    {fiscalService
+                      ? "Configuração fiscal preparada para revisar notas em homologação. A emissão em produção permanece bloqueada."
+                      : "Configuração fiscal preparada para revisão. O envio ao governo permanece desabilitado."}
                   </p>
                 )}
               </Panel>
               <Panel
                 icon={<AlertCircle />}
-                title="O que falta para emitir"
-                subtitle="Salvar o rascunho não habilita a emissão de notas."
+                title={
+                  fiscalService
+                    ? "Antes de testar a emissão"
+                    : "O que falta para emitir"
+                }
+                subtitle={
+                  fiscalService
+                    ? "Salve a configuração e use o painel de homologação."
+                    : "Salvar o rascunho não habilita a emissão de notas."
+                }
               >
                 <ul className="nf-pending">
-                  {pendingNfseSetup(setup).map((item) => (
-                    <li key={item}>
-                      <span />
-                      {item}
-                    </li>
-                  ))}
+                  {(fiscalService ? fiscalIssues : pendingNfseSetup(setup)).map(
+                    (item) => (
+                      <li key={item}>
+                        <span />
+                        {item}
+                      </li>
+                    ),
+                  )}
                   <li>
                     <span />
-                    Conectar o A1 e validar a comunicação com o emissor em
-                    homologação
+                    {fiscalService
+                      ? "Use Testar conexão para conferir o A1 e os parâmetros atuais do emissor nacional."
+                      : "Conectar o A1 e validar a comunicação com o emissor em homologação"}
                   </li>
                 </ul>
               </Panel>
               <div className="nf-alert">
                 <Info />
                 <span>
-                  Após salvar, você poderá preparar rascunhos para seus
-                  clientes. Eles não têm número fiscal, não são enviados à
-                  prefeitura e não geram receitas no financeiro.
+                  {fiscalService
+                    ? "Após salvar, prepare um rascunho com os dados completos do cliente. A preparação da DPS e o envio de teste são ações separadas, com revisão e confirmação."
+                    : "Após salvar, você poderá preparar rascunhos para seus clientes. Eles não têm número fiscal, não são enviados à prefeitura e não geram receitas no financeiro."}
                 </span>
               </div>
             </>
@@ -935,7 +1210,10 @@ export default function Nfse({
               <button
                 className="nf-button"
                 onClick={() => saveSetup(false)}
-                disabled={Boolean(load.error)}
+                disabled={
+                  busy ||
+                  Boolean(fiscalService ? !cloud?.canConfigure : load.error)
+                }
               >
                 <Save /> Salvar e continuar depois
               </button>
@@ -954,7 +1232,10 @@ export default function Nfse({
               ) : (
                 <button
                   className="nf-button nf-primary"
-                  disabled={Boolean(load.error)}
+                  disabled={
+                    busy ||
+                    Boolean(fiscalService ? !cloud?.canConfigure : load.error)
+                  }
                   onClick={() => saveSetup(true)}
                 >
                   <Check /> Salvar configuração de rascunho
@@ -1029,8 +1310,9 @@ export default function Nfse({
           <div className="nf-alert nf-warning">
             <AlertCircle />
             <span>
-              Para emitir NFS-e, conclua o cadastro fiscal e conecte o
-              certificado digital A1.{" "}
+              {fiscalService
+                ? "Para testar, revise o cadastro do emissor, salve uma nota e use o painel de homologação."
+                : "Para emitir NFS-e, conclua o cadastro fiscal e conecte o certificado digital A1."}{" "}
               <button onClick={() => openSetup()}>Configurar emissão</button>
             </span>
           </div>
@@ -1039,7 +1321,11 @@ export default function Nfse({
               <div className="nf-document-icon">
                 <FileText />
               </div>
-              <h3>Nenhuma NFS-e emitida</h3>
+              <h3>
+                {fiscalService
+                  ? "Nenhum rascunho salvo no servidor"
+                  : "Nenhuma NFS-e emitida"}
+              </h3>
               <p>
                 Configure os dados da sua empresa e prepare notas fiscais de
                 serviço para os seus clientes.
@@ -1096,7 +1382,11 @@ export default function Nfse({
                     Notas em preparação{" "}
                     <span className="nf-count">{workspace.drafts.length}</span>
                   </h3>
-                  <p>Rascunhos locais. Nenhuma NFS-e foi emitida.</p>
+                  <p>
+                    {fiscalService
+                      ? "Rascunhos no servidor. Consulte os testes e seus retornos no painel de homologação."
+                      : "Rascunhos locais. Nenhuma NFS-e foi emitida."}
+                  </p>
                 </div>
                 <label className="nf-search">
                   <Search />
@@ -1149,7 +1439,24 @@ export default function Nfse({
                             : "A preencher"}
                         </td>
                         <td>
-                          <span className="nf-tag nf-tag-amber">Rascunho</span>
+                          <span className="nf-tag nf-tag-amber">
+                            {cloud?.emissions.find((e) => e.draftId === item.id)
+                              ?.status === "authorized"
+                              ? "Autorizada em homologação"
+                              : cloud?.emissions.find(
+                                    (e) => e.draftId === item.id,
+                                  )?.status === "prepared"
+                                ? "DPS preparada"
+                                : cloud?.emissions.some(
+                                      (e) =>
+                                        e.draftId === item.id &&
+                                        ["sending", "unknown"].includes(
+                                          e.status,
+                                        ),
+                                    )
+                                  ? "Aguardando consulta"
+                                  : "Rascunho"}
+                          </span>
                         </td>
                         <td>
                           <div className="nf-row-actions">
@@ -1276,8 +1583,9 @@ export default function Nfse({
                   <div className="nf-alert">
                     <Info />
                     <span>
-                      Este é um rascunho local. A emissão fiscal ainda não está
-                      disponível.
+                      {fiscalService
+                        ? "Salve os dados e prepare a DPS no painel de homologação. Campos incompletos serão apontados antes do preparo."
+                        : "Este é um rascunho local. A emissão fiscal ainda não está disponível."}
                     </span>
                   </div>
                   {error && (
@@ -1292,10 +1600,10 @@ export default function Nfse({
                         required
                         value={draft.customerName}
                         onChange={(event) =>
-                          setDraft({
-                            ...draft,
-                            customerName: event.target.value,
-                          })
+                          customerLookup.change(
+                            "customerName",
+                            event.target.value,
+                          )
                         }
                         maxLength={250}
                       />
@@ -1304,34 +1612,70 @@ export default function Nfse({
                       <input
                         value={draft.customerDocument}
                         onChange={(event) =>
-                          setDraft({
-                            ...draft,
-                            customerDocument: event.target.value,
-                          })
+                          customerLookup.change(
+                            "customerDocument",
+                            event.target.value,
+                          )
                         }
                         placeholder="Pode ser preenchido depois"
                         maxLength={25}
                       />
                     </Field>
+                    <div className="nf-customer-lookup nf-field-wide">
+                      <div
+                        role="status"
+                        aria-live="polite"
+                        className={
+                          customerLookup.company.kind === "error"
+                            ? "nf-lookup-warning"
+                            : ""
+                        }
+                      >
+                        {customerLookup.company.message ||
+                          "Ao completar um CNPJ válido, os dados disponíveis serão consultados automaticamente. Para CPF, preencha o cadastro manualmente."}
+                      </div>
+                      {customerLookup.canCompany && (
+                        <button
+                          type="button"
+                          className="nf-button"
+                          disabled={customerLookup.company.kind === "loading"}
+                          onClick={customerLookup.retryCompany}
+                        >
+                          {customerLookup.company.kind === "loading"
+                            ? "Consultando…"
+                            : "Consultar CNPJ novamente"}
+                        </button>
+                      )}
+                    </div>
                     <Field label="E-mail do cliente">
                       <input
                         type="email"
                         value={draft.customerEmail}
                         onChange={(event) =>
-                          setDraft({
-                            ...draft,
-                            customerEmail: event.target.value,
-                          })
+                          customerLookup.change(
+                            "customerEmail",
+                            event.target.value,
+                          )
                         }
                         maxLength={250}
                       />
                     </Field>
                     <Field label="Competência">
                       <input
-                        type="month"
-                        value={draft.competence}
+                        type={fiscalService ? "date" : "month"}
+                        value={
+                          fiscalService
+                            ? draft.serviceDate || ""
+                            : draft.competence
+                        }
                         onChange={(event) =>
-                          setDraft({ ...draft, competence: event.target.value })
+                          setDraft({
+                            ...draft,
+                            competence: event.target.value.slice(0, 7),
+                            ...(fiscalService
+                              ? { serviceDate: event.target.value }
+                              : {}),
+                          })
                         }
                       />
                     </Field>
@@ -1363,6 +1707,156 @@ export default function Nfse({
                       <input readOnly value="Rascunho — sem validade fiscal" />
                     </Field>
                   </div>
+                  {fiscalService && (
+                    <>
+                      <h4>Endereço do cliente / tomador</h4>
+                      <div className="nf-grid nf-grid-two">
+                        {(
+                          [
+                            ["customerPostalCode", "CEP do cliente"],
+                            ["customerStreet", "Logradouro do cliente"],
+                            ["customerNumber", "Número do cliente"],
+                            ["customerComplement", "Complemento do cliente"],
+                            ["customerDistrict", "Bairro do cliente"],
+                            ["customerCity", "Cidade do cliente"],
+                            ["customerState", "UF do cliente"],
+                            [
+                              "customerMunicipalityCode",
+                              "Código IBGE do cliente",
+                            ],
+                          ] as const
+                        ).map(([key, label]) => (
+                          <Field label={label} key={key}>
+                            <input
+                              value={draft[key] || ""}
+                              maxLength={key === "customerState" ? 2 : 250}
+                              onChange={(e) =>
+                                customerLookup.change(key, e.target.value)
+                              }
+                            />
+                          </Field>
+                        ))}
+                        <NfseServicePlace
+                          key={draft.id}
+                          draft={draft}
+                          onChange={(value) =>
+                            setDraft((old) =>
+                              old?.id === draft.id ? { ...old, ...value } : old,
+                            )
+                          }
+                        />
+                        {(
+                          [
+                            ["serviceCode", "Código nacional desta nota"],
+                            [
+                              "municipalServiceCode",
+                              "Código municipal desta nota (opcional)",
+                            ],
+                            ["nbsCode", "NBS desta nota"],
+                          ] as const
+                        ).map(([key, label]) => (
+                          <Field key={key} label={label}>
+                            <input
+                              value={draft[key] || ""}
+                              placeholder={
+                                key === "municipalServiceCode"
+                                  ? "Vazio quando não se aplicar; não use 000"
+                                  : undefined
+                              }
+                              maxLength={25}
+                              onChange={(e) =>
+                                customerLookup.change(key, e.target.value)
+                              }
+                            />
+                          </Field>
+                        ))}
+                        <p className="nf-field-wide nf-alert">
+                          O código municipal precisa estar cadastrado no
+                          ambiente utilizado. Se não houver complemento
+                          aplicável, deixe esse campo vazio nesta nota. O código
+                          padrão do emissor será preservado.
+                          {fiscalService &&
+                            " Novos rascunhos de homologação começam sem complemento municipal; preencha somente quando aplicável ao ambiente de testes."}
+                        </p>
+                        <Field label="ISS retido nesta nota">
+                          <select
+                            value={draft.issWithheld || ""}
+                            onChange={(e) =>
+                              setDraft({
+                                ...draft,
+                                issWithheld: e.target.value,
+                                issRate:
+                                  e.target.value === "nao" ? "" : draft.issRate,
+                              })
+                            }
+                          >
+                            <option value="">Confirmar com o contador</option>
+                            <option value="nao">Não</option>
+                            <option value="sim">Sim, pelo tomador</option>
+                          </select>
+                        </Field>
+                        {draft.issWithheld === "sim" && (
+                          <Field label="Alíquota do ISS retido (%)">
+                            <input
+                              value={draft.issRate || ""}
+                              inputMode="decimal"
+                              onChange={(e) =>
+                                setDraft({ ...draft, issRate: e.target.value })
+                              }
+                            />
+                          </Field>
+                        )}
+                        <Field label="Retenções federais nesta nota">
+                          <select
+                            value={draft.federalRetention || ""}
+                            onChange={(e) =>
+                              setDraft({
+                                ...draft,
+                                federalRetention: e.target.value,
+                              })
+                            }
+                          >
+                            <option value="">Confirmar antes de testar</option>
+                            <option value="nao">Sem retenções federais</option>
+                            <option value="sim">
+                              Com retenções — requer configuração adicional
+                            </option>
+                          </select>
+                        </Field>
+                      </div>
+                      <div className="nf-customer-lookup">
+                        <div
+                          role="status"
+                          aria-live="polite"
+                          className={
+                            customerLookup.address.kind === "error"
+                              ? "nf-lookup-warning"
+                              : ""
+                          }
+                        >
+                          {customerLookup.address.message ||
+                            "Ao completar o CEP, consultaremos o endereço e o código IBGE. Número e complemento podem precisar de preenchimento manual."}
+                        </div>
+                        {customerLookup.canAddress && (
+                          <button
+                            type="button"
+                            className="nf-button"
+                            disabled={customerLookup.address.kind === "loading"}
+                            onClick={customerLookup.retryAddress}
+                          >
+                            {customerLookup.address.kind === "loading"
+                              ? "Consultando…"
+                              : "Consultar CEP novamente"}
+                          </button>
+                        )}
+                      </div>
+                      <p className="nf-lookup-source">
+                        Consultas públicas: BrasilAPI (CNPJ) e ViaCEP (CEP).
+                        Confira os dados antes de salvar. O local da prestação e
+                        os impostos são definidos separadamente.
+                      </p>
+                    </>
+                  )}
                 </div>
                 <footer>
                   <button
@@ -1381,12 +1875,13 @@ export default function Nfse({
                     disabled
                     title="Disponível após a integração fiscal"
                   >
-                    <LockKeyhole /> Emitir NFS-e
+                    <LockKeyhole />{" "}
+                    {fiscalService ? "Produção bloqueada" : "Emitir NFS-e"}
                   </button>
                   <button
                     className="nf-button nf-primary"
                     type="submit"
-                    disabled={Boolean(load.error)}
+                    disabled={busy || Boolean(!fiscalService && load.error)}
                   >
                     <Save /> Salvar rascunho
                   </button>
@@ -1397,9 +1892,9 @@ export default function Nfse({
                 <div className="nf-modal-body">
                   <p>
                     Excluir o rascunho de{" "}
-                    <strong>{deleting.customerName}</strong> deste navegador?
-                    Esta ação não é um cancelamento fiscal: nenhuma nota foi
-                    emitida.
+                    <strong>{deleting.customerName}</strong>{" "}
+                    {fiscalService ? "do servidor" : "deste navegador"}? Esta
+                    ação não é um cancelamento fiscal: nenhuma nota foi emitida.
                   </p>
                   {error && (
                     <p role="alert" className="nf-form-error">
@@ -1416,10 +1911,10 @@ export default function Nfse({
                   </button>
                   <button
                     className="nf-button nf-danger"
-                    disabled={Boolean(load.error)}
-                    onClick={() => {
+                    disabled={busy || Boolean(!fiscalService && load.error)}
+                    onClick={async () => {
                       if (
-                        persist(
+                        await persist(
                           {
                             ...workspace,
                             drafts: workspace.drafts.filter(
@@ -1440,8 +1935,10 @@ export default function Nfse({
               <>
                 <div className="nf-modal-body">
                   <p>
-                    O módulo está em preparação para um único emissor e vários
-                    clientes.
+                    O módulo atende um único emissor e vários clientes.{" "}
+                    {fiscalService
+                      ? "Os testes usam o ambiente nacional de homologação."
+                      : "A emissão fiscal está em preparação."}
                   </p>
                   <ol className="nf-info-steps">
                     <li>
@@ -1449,8 +1946,9 @@ export default function Nfse({
                       com o contador.
                     </li>
                     <li>
-                      Conecte o certificado A1 quando a integração segura
-                      estiver disponível.
+                      {fiscalService
+                        ? "Cadastre o A1 na custódia segura e use Testar conexão."
+                        : "Conecte o certificado A1 quando a integração segura estiver disponível."}
                     </li>
                     <li>
                       Valide a integração em homologação antes de emitir notas
@@ -1464,9 +1962,9 @@ export default function Nfse({
                   <div className="nf-alert">
                     <Info />
                     <span>
-                      No momento, apenas configurações e rascunhos são salvos
-                      neste navegador. PDF, XML, envio e cancelamento fiscal
-                      dependem da integração.
+                      {fiscalService
+                        ? "Configuração, rascunhos e histórico são salvos no servidor. Prepare a DPS, confira o XML e confirme o envio de teste. Em resposta incerta, consulte o resultado. A emissão em produção e o cancelamento fiscal permanecem indisponíveis."
+                        : "No momento, apenas configurações e rascunhos são salvos neste navegador. PDF, XML, envio e cancelamento fiscal dependem da integração."}
                     </span>
                   </div>
                 </div>

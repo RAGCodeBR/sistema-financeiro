@@ -47,6 +47,10 @@ function localOcrAssets() {
 export default defineConfig({
   // Relative paths keep the app functional on GitHub Pages project sites.
   base: './',
+  server: {
+    // Private fiscal material and local documents are never static dev assets.
+    fs: { deny: ['.env', '.env.*', '**/*.env', '**/.git/**', '**/.local/**', '**/*.pfx', '**/*.p12', '**/*.key', '**/*.pem'] },
+  },
   plugins: [
     localOcrAssets(),
     {

@@ -9,6 +9,10 @@ project_id = "sistema-financeiro"
 # Bearer token with Auth.getUser and checks the current profile server-side.
 verify_jwt = false
 
+[functions.nfse-fiscal]
+verify_jwt = false
+static_files = ["./functions/nfse-fiscal/schemas/*.xsd"]
+
 [api]
 enabled = true
 # Port to use for the API URL.

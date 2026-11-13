@@ -44,9 +44,12 @@ export function nfseFiscalIssues(
     issues.push("Código de tributação nacional com 6 dígitos");
   if (
     settings.municipalServiceCode &&
-    !/^\d{3}$/.test(nfseCodeDigits(settings.municipalServiceCode))
+    (!/^\d{3}$/.test(nfseCodeDigits(settings.municipalServiceCode)) ||
+      nfseCodeDigits(settings.municipalServiceCode) === "000")
   )
-    issues.push("Código de tributação municipal com 3 dígitos");
+    issues.push(
+      "Código de tributação municipal com 3 dígitos válidos; 000 não é permitido, deixe vazio quando não se aplicar",
+    );
   if (!/^\d{9}$/.test(nfseCodeDigits(settings.nbsCode)))
     issues.push("Código NBS com 9 dígitos");
   if (!/^\d{7}$/.test(settings.issIncidenceMunicipalityCode))

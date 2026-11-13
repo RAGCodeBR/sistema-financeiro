@@ -62,6 +62,8 @@ Os valores públicos de CNPJ e origem de produção também estão definidos com
 
 ## Rotação e recuperação
 
+Atualização em 13/11/2026: o usuário cadastrou o A1 e a etapa de homologação foi implementada e ativada no servidor. A cadeia e a revogação foram conferidas com consultas reais. Posteriormente, o usuário confirmou o envio e obteve a autorização da DPS 6 em homologação pelo serviço Node local. Consulte [o fluxo e o estado da homologação, incluindo a infraestrutura pendente para uso online](nfse-homologacao.md). A emissão em produção permanece bloqueada.
+
 O envelope contém `keyId`. `NFSE_CERTIFICATE_KEYS` admite chaves antigas e a ativa. Para uma rotação sem indisponibilidade, adicionar nova chave, alterar a ativa e recriptografar os envelopes existentes em uma operação administrativa controlada antes de retirar chaves antigas. A rotina automática de recriptografia ainda não foi implementada; também é possível recadastrar o A1 na nova chave. Excluir a única chave que abre um envelope impede a recuperação daquele cadastro. Nenhuma chave deve ser copiada para o banco ou para o frontend.
 
 ## Validação do desenvolvimento

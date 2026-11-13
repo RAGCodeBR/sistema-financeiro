@@ -9,7 +9,8 @@ export type NfseCertificateMetadata = {
   validatedAt: string;
   uploadedAt: string;
   chainVerified: boolean;
-  revocationStatus: "not_checked";
+  revocationStatus: "not_checked" | "unknown" | "good" | "revoked";
+  revocationCheckedAt?: string;
   fiscalReady: false;
 };
 export type NfseCertificateStatus = {
