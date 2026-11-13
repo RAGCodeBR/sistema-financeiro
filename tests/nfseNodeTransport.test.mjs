@@ -80,3 +80,31 @@ test("a runtime without compatible transmission rejects before reserving or send
   assert.equal((await response.json()).code, "COMPATIBLE_SERVICE_REQUIRED");
   assert.equal(calls, 0);
 });
+test("a runtime without transmission reports its capability while keeping authenticated history readable", async () => {
+  const handler = createFiscalHandler({
+    origins: ["https://local.test"],
+    transmissionAvailable: false,
+    authenticate: async () => ({
+      id: crypto.randomUUID(),
+      role: "master",
+      allowedUnits: [],
+      hiddenScreens: [],
+    }),
+    rpc: async (name) => {
+      assert.equal(name, "nfse_fiscal_load");
+      return {
+        environment: 2,
+        productionEnabled: false,
+        drafts: [],
+        emissions: [],
+      };
+    },
+  });
+  const response = await handler(
+    new Request("https://local.test/nfse-fiscal", {
+      headers: { origin: "https://local.test", authorization: "Bearer test" },
+    }),
+  );
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).transmissionAvailable, false);
+});

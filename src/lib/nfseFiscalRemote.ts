@@ -42,6 +42,7 @@ export type NfseFiscalState = {
   canIssue: boolean;
   environment: 2;
   productionEnabled: false;
+  transmissionAvailable?: boolean;
 };
 export type NfseFiscalService = {
   load: () => Promise<NfseFiscalState>;

@@ -94,7 +94,10 @@ export function createFiscalHandler(deps: FiscalDependencies) {
           403,
         );
       const params = { p_actor_id: actor.id, p_issuer_cnpj: ISSUER_CNPJ };
-      const load = () => deps.rpc("nfse_fiscal_load", params);
+      const load = async () => ({
+        ...(await deps.rpc("nfse_fiscal_load", params)),
+        transmissionAvailable: deps.transmissionAvailable !== false,
+      });
       if (request.method === "GET") return reply(await load());
       if (!request.headers.get("content-type")?.startsWith("application/json"))
         throw new FiscalError(

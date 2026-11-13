@@ -153,6 +153,7 @@ export default function NfseHomologation({
     }
   }
   const connection = state.connection,
+    transmissionAvailable = state.transmissionAvailable !== false,
     fresh =
       connection?.validUntil && new Date(connection.validUntil) > new Date();
   return (
@@ -171,12 +172,20 @@ export default function NfseHomologation({
         </p>
       </header>
       <div className="nf-panel-body">
+        {!transmissionAvailable && (
+          <p className="nf-alert nf-warning" role="status">
+            O envio de notas está indisponível neste site no momento. Histórico,
+            cadastro, XML e espelho em PDF continuam disponíveis.
+          </p>
+        )}
         <div className="nf-homologation-actions">
           <div>
             <b>
-              {connection?.details.connected
-                ? "Conexão nacional verificada"
-                : "Conexão nacional ainda não verificada"}
+              {!transmissionAvailable
+                ? "Envio de notas indisponível neste site"
+                : connection?.details.connected
+                  ? "Conexão nacional verificada"
+                  : "Conexão nacional ainda não verificada"}
             </b>
             <p>
               {connection
@@ -187,8 +196,13 @@ export default function NfseHomologation({
           {state.canConfigure && (
             <button
               className="nf-button"
-              disabled={busy}
+              disabled={busy || !transmissionAvailable}
               onClick={() => run({ action: "connection" })}
+              title={
+                !transmissionAvailable
+                  ? "O serviço de emissão deste site ainda não está disponível."
+                  : undefined
+              }
             >
               <RefreshCw />
               Testar conexão
@@ -252,6 +266,7 @@ export default function NfseHomologation({
               className="nf-button nf-primary"
               disabled={
                 busy ||
+                !transmissionAvailable ||
                 !saved ||
                 Boolean(pending && pending.status !== "failed")
               }
@@ -346,13 +361,14 @@ export default function NfseHomologation({
                   {e.status === "authorized" && (
                     <button
                       className="nf-button"
-                      disabled={busy}
+                      disabled={busy || !transmissionAvailable}
                       onClick={() => download(e, "pdf")}
                     >
                       DANFSe de teste
                     </button>
                   )}
                   {state.canIssue &&
+                    transmissionAvailable &&
                     ["sending", "unknown"].includes(e.status) && (
                       <button
                         className="nf-button"
@@ -362,17 +378,20 @@ export default function NfseHomologation({
                         Consultar resultado
                       </button>
                     )}
-                  {state.canIssue && e.status === "prepared" && (
-                    <button
-                      className="nf-button nf-primary"
-                      disabled={busy}
-                      onClick={() => setConfirming(e.id)}
-                    >
-                      <Send />
-                      Revisar envio
-                    </button>
-                  )}
                   {state.canIssue &&
+                    transmissionAvailable &&
+                    e.status === "prepared" && (
+                      <button
+                        className="nf-button nf-primary"
+                        disabled={busy}
+                        onClick={() => setConfirming(e.id)}
+                      >
+                        <Send />
+                        Revisar envio
+                      </button>
+                    )}
+                  {state.canIssue &&
+                    transmissionAvailable &&
                     e.status === "unknown" &&
                     e.errors.some((error) => error.code === "E2404") && (
                       <button

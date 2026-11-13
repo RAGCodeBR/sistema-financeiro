@@ -2,6 +2,8 @@
 
 Estado confirmado em 13/11/2026: o usuário autorizou a DPS 6 no ambiente nacional de homologação, e o sistema recuperou o XML correspondente. A consulta oficial de DANFSe retornou 404; há um espelho de conferência identificado separadamente. Os testes locais passam, mas a emissão em produção permanece bloqueada. O site é publicado em GitHub Pages; a comunicação fiscal online ainda depende da hospedagem do serviço Node/OpenSSL e da configuração de `NFSE_NODE_SERVICE_URL`. Publicar o frontend e a função Edge não substitui essa etapa de infraestrutura.
 
+O servidor informa `transmissionAvailable` na leitura autenticada. Enquanto o serviço Node não estiver configurado no site público, a tela mostra a indisponibilidade, bloqueia consultas fiscais/preparo/transmissão/PDF oficial e mantém histórico, cadastro, XML e espelho acessíveis. O ambiente local Node continua com a transmissão de homologação disponível. A disponibilidade é informada pelo runtime e verificada novamente no servidor, independentemente do estado dos botões.
+
 O módulo agora salva configuração, rascunhos e histórico no servidor e prepara DPS para o ambiente nacional de testes. O único emissor é 60.371.448/0001-43. O fluxo fiscal não cria lançamentos financeiros, não envia e-mails e não emite notas em produção.
 
 ## Uso
