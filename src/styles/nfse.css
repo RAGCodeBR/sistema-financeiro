@@ -847,6 +847,14 @@
 .nf-summary small {
   display: block;
 }
+.nf-fiscal-ready {
+  border-top: 1px solid #e5edf5;
+  margin: 20px 0 0;
+  padding-top: 15px;
+  font-size: 11px;
+  line-height: 1.8;
+  color: #67879a;
+}
 .nf-summary span {
   color: #8797ad;
   font-size: 11px;

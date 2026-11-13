@@ -9,7 +9,7 @@ Prévia independente: `npm run dev -- --host 127.0.0.1 --port 5173`, depois `htt
 - Lista vazia inspirada na referência, ações, competência, ajuda e identificação do emissor.
 - Assistente: dados da empresa, certificado, configurações e confirmação.
 - Emissor único pré-preenchido com os dados confirmados pelo usuário: LAURO ALVES DE OLIVEIRA JUNIOR LTDA, CNPJ 60.371.448/0001-43, Santos/SP, Conselheiro Nebias 756, conj 1011, Boqueirao, CEP 11045-002, IBGE 3548500.
-- Regime tributário, inscrição municipal, CNAE, serviço e tributação pendentes, sem inferir isenção ou alíquotas.
+- Referência fiscal atualizada com inscrição municipal 3220285, Simples Nacional, apuração federal/municipal pelo SN, serviço 17.01.01 / 021 e NBS 1.1401.11.00. Os 6% informados do Simples ficam separados do ISS. Consulte [nfse-dados-fiscais.md](nfse-dados-fiscais.md).
 - Salvamento parcial da configuração e preparação de rascunhos para vários tomadores PF/PJ, edição, exclusão com confirmação, busca e paginação de dez itens.
 - Configuração e rascunhos em localStorage, separados por ID do usuário. Não sincronizam entre máquinas ou usuários. Falhas de leitura impedem sobrescrever o conteúdo existente; falhas de escrita são apresentadas.
 
@@ -21,4 +21,4 @@ A etapa de certificado agora possui uma integração segura preparada no servido
 
 ## Próxima etapa
 
-Receber inscrição municipal, regime tributário e configurações de serviço (uma nota anterior é uma referência opcional); confirmar habilitação do emissor; definir integração direta ou provedor fiscal; ativar o serviço seguro de certificado, configurar raízes e chaves e implementar a consulta de revogação; validar homologação e só então habilitar a emissão em produção. Os campos fiscais definitivos dependem do layout e regras aplicáveis.
+O perfil fiscal de referência foi recebido. O serviço de custódia do A1 está ativado; falta cadastrar o certificado do emissor. A sequência da integração inclui consulta de revogação, habilitação e parâmetros municipais, persistência no servidor, dados por operação, montagem/assinatura do XML, controle de DPS e homologação antes de habilitar emissão em produção. Os campos fiscais definitivos dependem do layout e regras aplicáveis.

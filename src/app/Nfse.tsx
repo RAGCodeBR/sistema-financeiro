@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import {
   emptyNfseWorkspace,
+  applyConfirmedNfseReference,
   nfseStorageKey,
   parseNfseWorkspace,
   pendingNfseSetup,
@@ -48,6 +49,8 @@ import { fmt, parseMoney } from "./shared";
 import "../styles/nfse.css";
 import NfseCertificate from "./NfseCertificate";
 import type { NfseCertificateService } from "../lib/nfseCertificate";
+import { NFSE_FISCAL_REFERENCE_VERSION } from "../lib/nfseFiscalReference";
+import { nfseFiscalIssues, omitIssRate } from "../lib/nfseTaxProfile";
 
 const steps = [
   "Dados da empresa",
@@ -250,6 +253,21 @@ export default function Nfse({
     setNotice("");
     setMenu(false);
   }
+  function reviewFiscalReference() {
+    try {
+      setSetup(applyConfirmedNfseReference(setup || workspace));
+      setStep(0);
+      setNotice(
+        "Dados fiscais confirmados aplicados à revisão. Confira os campos e salve a configuração para mantê-los neste navegador. Seus rascunhos de notas foram preservados.",
+      );
+      setError("");
+      setMenu(false);
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : "Confira o CNPJ do emissor.",
+      );
+    }
+  }
   function closeSetup() {
     setSetup(null);
     setStep(0);
@@ -341,6 +359,8 @@ export default function Nfse({
   const visible = filtered.slice((activePage - 1) * 10, activePage * 10);
   const issuer = setup?.issuer ?? workspace.issuer;
   const settings = setup?.settings ?? workspace.settings;
+  const fiscalIssues = nfseFiscalIssues(issuer, settings);
+  const noSeparateIss = omitIssRate(issuer, settings);
   const setIssuer = <K extends keyof NfseIssuer>(
     key: K,
     value: NfseIssuer[K],
@@ -395,10 +415,23 @@ export default function Nfse({
         <LockKeyhole />
         <p>
           <strong>Preparação local.</strong> Os rascunhos ficam neste navegador.
-          O certificado é gerenciado em uma conexão segura com o servidor.
-          A emissão fiscal continua em preparação.
+          O certificado é gerenciado em uma conexão segura com o servidor. A
+          emissão fiscal continua em preparação.
         </p>
       </div>
+      {(setup || workspace).fiscalReferenceVersion <
+        NFSE_FISCAL_REFERENCE_VERSION && (
+        <div className="nf-alert">
+          <FileCheck2 />
+          <span>
+            Há dados fiscais confirmados para o emissor: inscrição municipal,
+            Simples Nacional, códigos do serviço e retenção.{" "}
+            <button onClick={reviewFiscalReference}>
+              Revisar e aplicar dados confirmados
+            </button>
+          </span>
+        </div>
+      )}
       {error && (
         <div className="nf-alert nf-error" role="alert">
           <AlertCircle />
@@ -531,11 +564,36 @@ export default function Nfse({
                       ))}
                     </select>
                   </Field>
-                  {input(
-                    "specialRegime",
-                    "Regime especial de tributação",
-                    "A confirmar, se aplicável",
-                  )}
+                  <Field label="Regime especial de tributação">
+                    <select
+                      value={issuer.specialRegime}
+                      onChange={(event) =>
+                        setIssuer("specialRegime", event.target.value)
+                      }
+                    >
+                      <option value="">A confirmar</option>
+                      {Object.entries({
+                        "0": "Nenhum",
+                        "1": "Ato cooperado",
+                        "2": "Estimativa",
+                        "3": "Microempresa municipal",
+                        "4": "Notário ou registrador",
+                        "5": "Profissional autônomo",
+                        "6": "Sociedade de profissionais",
+                        "9": "Outros",
+                      }).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                      {issuer.specialRegime &&
+                        !/^(?:[0-6]|9)$/.test(issuer.specialRegime) && (
+                          <option value={issuer.specialRegime}>
+                            {issuer.specialRegime} — revisar
+                          </option>
+                        )}
+                    </select>
+                  </Field>
                   {input("email", "E-mail", "contato@empresa.com.br", "email")}
                   {input("phone", "Telefone", "(13) 0000-0000", "tel")}
                 </div>
@@ -564,7 +622,11 @@ export default function Nfse({
               title="Certificado digital A1"
               subtitle="O certificado será usado pelo serviço de emissão para assinar e transmitir as notas."
             >
-              <NfseCertificate issuerCnpj={issuer.document} service={certificateService} canManage={canManageCertificate} />
+              <NfseCertificate
+                issuerCnpj={issuer.document}
+                service={certificateService}
+                canManage={canManageCertificate}
+              />
             </Panel>
           )}
           {step === 2 && (
@@ -607,6 +669,67 @@ export default function Nfse({
                       maxLength={60}
                     />
                   </Field>
+                  <Field label="Código NBS">
+                    <input
+                      value={settings.nbsCode}
+                      onChange={(event) =>
+                        setSettings("nbsCode", event.target.value)
+                      }
+                      placeholder="Ex.: 1.1401.11.00"
+                      maxLength={16}
+                    />
+                  </Field>
+                  <Field label="Apuração pelo Simples Nacional">
+                    <select
+                      value={settings.simplesAssessment}
+                      onChange={(event) =>
+                        setSettings("simplesAssessment", event.target.value)
+                      }
+                    >
+                      <option value="">A confirmar</option>
+                      <option value="1">
+                        Tributos federais e ISS pelo Simples
+                      </option>
+                      <option value="2">
+                        Federais pelo Simples; ISS fora do Simples
+                      </option>
+                      <option value="3">Federais e ISS fora do Simples</option>
+                    </select>
+                  </Field>
+                  <Field label="Alíquota informada do Simples Nacional (%)">
+                    <input
+                      value={settings.simplesRate}
+                      onChange={(event) =>
+                        setSettings("simplesRate", event.target.value)
+                      }
+                      inputMode="decimal"
+                      placeholder="Percentual total informado pelo contador"
+                      maxLength={6}
+                    />
+                  </Field>
+                  <Field label="Município de incidência do ISS">
+                    <input
+                      value={settings.issIncidenceCity}
+                      onChange={(event) =>
+                        setSettings("issIncidenceCity", event.target.value)
+                      }
+                      placeholder="Ex.: Santos / SP"
+                      maxLength={250}
+                    />
+                  </Field>
+                  <Field label="Código IBGE da incidência do ISS">
+                    <input
+                      value={settings.issIncidenceMunicipalityCode}
+                      onChange={(event) =>
+                        setSettings(
+                          "issIncidenceMunicipalityCode",
+                          event.target.value,
+                        )
+                      }
+                      inputMode="numeric"
+                      maxLength={7}
+                    />
+                  </Field>
                   <Field label="Município padrão da prestação">
                     <input
                       value={settings.serviceCity}
@@ -614,19 +737,38 @@ export default function Nfse({
                         setSettings("serviceCity", event.target.value)
                       }
                       maxLength={250}
+                      placeholder="Definir conforme cada serviço; pode ser diferente da incidência do ISS"
                     />
                   </Field>
-                  <Field label="Alíquota de ISS (%)">
+                  <Field label="Alíquota específica do ISS (%)">
                     <input
-                      value={settings.issRate}
+                      value={
+                        noSeparateIss
+                          ? "Não destacar — ISS apurado pelo Simples"
+                          : settings.issRate
+                      }
+                      readOnly={noSeparateIss}
                       onChange={(event) =>
                         setSettings("issRate", event.target.value)
                       }
-                      placeholder="A confirmar"
+                      placeholder="Se exigida, confirmar com o contador"
                       inputMode="decimal"
                       maxLength={12}
                     />
                   </Field>
+                  {noSeparateIss && settings.issRate.trim() && (
+                    <div className="nf-field-wide nf-alert nf-warning">
+                      <AlertCircle />
+                      <span>
+                        Foi encontrada uma alíquota de ISS anterior (
+                        {settings.issRate}%). No enquadramento atual ela deve
+                        ser omitida.{" "}
+                        <button onClick={() => setSettings("issRate", "")}>
+                          Remover valor anterior
+                        </button>
+                      </span>
+                    </div>
+                  )}
                   <Field label="Retenção de ISS">
                     <select
                       value={settings.issWithheld}
@@ -660,11 +802,23 @@ export default function Nfse({
               <div className="nf-alert">
                 <Info />
                 <span>
-                  Esses campos são uma preparação do cadastro. Os tributos e
-                  campos adicionais exigidos pelo emissor serão definidos com os
-                  dados fiscais e a nota de exemplo.
+                  Os 6% informados correspondem ao Simples Nacional, não à
+                  alíquota destacada de ISS. Com apuração federal e municipal
+                  pelo Simples e sem retenção, a alíquota de ISS não é informada
+                  separadamente. Local da prestação e município de incidência do
+                  ISS são campos diferentes e devem ser conferidos em cada
+                  operação.
                 </span>
               </div>
+              {fiscalIssues.length > 0 && (
+                <div className="nf-alert nf-warning">
+                  <AlertCircle />
+                  <span>
+                    Antes de preparar a emissão, confira:{" "}
+                    {fiscalIssues.join("; ")}.
+                  </span>
+                </div>
+              )}
             </>
           )}
           {step === 3 && (
@@ -694,9 +848,55 @@ export default function Nfse({
                   <div>
                     <span>Regime tributário</span>
                     <b>{regimes[issuer.taxRegime] || "A confirmar"}</b>
-                    <small>Consulte o status do A1 na etapa Certificado digital</small>
+                    <small>
+                      Consulte o status do A1 na etapa Certificado digital
+                    </small>
                   </div>
                 </div>
+              </Panel>
+              <Panel
+                icon={<FileCheck2 />}
+                title="Enquadramento do serviço"
+                subtitle="Referência fiscal conferida com os dados fornecidos e a nota de exemplo."
+              >
+                <div className="nf-summary">
+                  <div>
+                    <span>Tributação nacional / municipal</span>
+                    <b>
+                      {settings.serviceCode || "A preencher"} /{" "}
+                      {settings.municipalServiceCode || "A confirmar"}
+                    </b>
+                    <small>NBS: {settings.nbsCode || "A preencher"}</small>
+                  </div>
+                  <div>
+                    <span>Simples Nacional</span>
+                    <b>
+                      {settings.simplesRate
+                        ? `${settings.simplesRate}% — percentual informado`
+                        : "A preencher"}
+                    </b>
+                    <small>
+                      {noSeparateIss
+                        ? "ISS sem alíquota destacada e sem retenção"
+                        : "Conferir tributação e retenção do ISS"}
+                    </small>
+                  </div>
+                  <div>
+                    <span>Incidência do ISS</span>
+                    <b>{settings.issIncidenceCity || "A preencher"}</b>
+                    <small>
+                      {settings.serviceCity
+                        ? `Prestação padrão: ${settings.serviceCity}`
+                        : "Local da prestação: definir por operação"}
+                    </small>
+                  </div>
+                </div>
+                {fiscalIssues.length === 0 && (
+                  <p className="nf-fiscal-ready">
+                    Configuração fiscal preparada para revisão. O envio ao
+                    governo permanece desabilitado.
+                  </p>
+                )}
               </Panel>
               <Panel
                 icon={<AlertCircle />}
@@ -712,7 +912,8 @@ export default function Nfse({
                   ))}
                   <li>
                     <span />
-                    Validar uma nota de exemplo e os testes de homologação
+                    Conectar o A1 e validar a comunicação com o emissor em
+                    homologação
                   </li>
                 </ul>
               </Panel>

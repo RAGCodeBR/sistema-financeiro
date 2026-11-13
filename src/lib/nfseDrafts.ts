@@ -1,5 +1,12 @@
 // Local preparation only. Fiscal authorization, certificates and financial entries
 // deliberately have no representation in this draft store.
+import {
+  confirmedNfseIssuer,
+  confirmedNfseSettings,
+  NFSE_FISCAL_REFERENCE_CNPJ,
+  NFSE_FISCAL_REFERENCE_VERSION,
+} from "./nfseFiscalReference.ts";
+import { nfseFiscalIssues } from "./nfseTaxProfile.ts";
 export type NfseIssuer = {
   personType: "PJ" | "PF";
   document: string;
@@ -29,6 +36,11 @@ export type NfseSettings = {
   issRate: string;
   issWithheld: "confirmar" | "nao" | "sim";
   serviceCity: string;
+  nbsCode: string;
+  simplesAssessment: string;
+  simplesRate: string;
+  issIncidenceCity: string;
+  issIncidenceMunicipalityCode: string;
 };
 export type NfseDraft = {
   id: string;
@@ -43,6 +55,7 @@ export type NfseDraft = {
 };
 export type NfseWorkspace = {
   version: 1;
+  fiscalReferenceVersion: number;
   issuer: NfseIssuer;
   settings: NfseSettings;
   setupReviewed: boolean;
@@ -52,16 +65,17 @@ export type NfseWorkspace = {
 export function emptyNfseWorkspace(): NfseWorkspace {
   return {
     version: 1,
+    fiscalReferenceVersion: NFSE_FISCAL_REFERENCE_VERSION,
     issuer: {
       personType: "PJ",
       document: "60.371.448/0001-43",
       legalName: "LAURO ALVES DE OLIVEIRA JUNIOR LTDA",
       tradeName: "",
-      municipalRegistration: "",
+      municipalRegistration: confirmedNfseIssuer.municipalRegistration,
       stateRegistration: "",
       stateExempt: false,
-      taxRegime: "",
-      specialRegime: "",
+      taxRegime: confirmedNfseIssuer.taxRegime,
+      specialRegime: confirmedNfseIssuer.specialRegime,
       cnae: "",
       email: "",
       phone: "",
@@ -74,14 +88,7 @@ export function emptyNfseWorkspace(): NfseWorkspace {
       state: "SP",
       municipalityCode: "3548500",
     },
-    settings: {
-      serviceCode: "",
-      municipalServiceCode: "",
-      serviceDescription: "",
-      issRate: "",
-      issWithheld: "confirmar",
-      serviceCity: "Santos / SP",
-    },
+    settings: { ...confirmedNfseSettings },
     setupReviewed: false,
     drafts: [],
   };
@@ -125,10 +132,38 @@ export function parseNfseWorkspace(raw: string | null): NfseWorkspace {
       "O rascunho de NFS-e salvo neste navegador não pôde ser lido. Seus dados não foram substituídos.",
     );
   }
-  const issuer = knownStrings(base.issuer, value.issuer);
+  const referenceVersion =
+    typeof value.fiscalReferenceVersion === "number" &&
+    Number.isSafeInteger(value.fiscalReferenceVersion) &&
+    value.fiscalReferenceVersion >= 0
+      ? value.fiscalReferenceVersion
+      : 0;
+  // Legacy drafts keep their explicit values and are offered a review action;
+  // new fiscal fields are not silently applied to a saved configuration.
+  const issuerDefaults =
+    referenceVersion < NFSE_FISCAL_REFERENCE_VERSION
+      ? {
+          ...base.issuer,
+          municipalRegistration: "",
+          taxRegime: "",
+          specialRegime: "",
+        }
+      : base.issuer;
+  const settingsDefaults =
+    referenceVersion < NFSE_FISCAL_REFERENCE_VERSION
+      ? {
+          ...base.settings,
+          nbsCode: "",
+          simplesAssessment: "",
+          simplesRate: "",
+          issIncidenceCity: "",
+          issIncidenceMunicipalityCode: "",
+        }
+      : base.settings;
+  const issuer = knownStrings(issuerDefaults, value.issuer);
   issuer.personType = value.issuer.personType === "PF" ? "PF" : "PJ";
   issuer.stateExempt = value.issuer.stateExempt === true;
-  const settings = knownStrings(base.settings, value.settings);
+  const settings = knownStrings(settingsDefaults, value.settings);
   settings.issWithheld =
     value.settings.issWithheld === "sim"
       ? "sim"
@@ -164,6 +199,7 @@ export function parseNfseWorkspace(raw: string | null): NfseWorkspace {
   });
   return {
     version: 1,
+    fiscalReferenceVersion: referenceVersion,
     issuer,
     settings,
     setupReviewed: value.setupReviewed === true,
@@ -175,11 +211,24 @@ export function pendingNfseSetup(workspace: NfseWorkspace): string[] {
   const missing: string[] = [];
   if (!workspace.issuer.legalName.trim()) missing.push("Razão social");
   if (!workspace.issuer.document.trim()) missing.push("Documento do emissor");
-  if (!workspace.issuer.municipalRegistration.trim())
-    missing.push("Inscrição municipal");
-  if (!workspace.issuer.taxRegime) missing.push("Regime tributário");
-  if (!workspace.settings.serviceCode.trim()) missing.push("Código de serviço");
-  if (!workspace.settings.issRate.trim()) missing.push("Tributação do serviço");
+  missing.push(...nfseFiscalIssues(workspace.issuer, workspace.settings));
   missing.push("Integração fiscal e checagem de revogação do A1");
   return missing;
+}
+
+export function applyConfirmedNfseReference(
+  workspace: NfseWorkspace,
+): NfseWorkspace {
+  if (
+    workspace.issuer.document.replace(/\D/g, "") !== NFSE_FISCAL_REFERENCE_CNPJ
+  )
+    throw new Error(
+      "Os dados confirmados pertencem ao CNPJ 60.371.448/0001-43. Confira o emissor antes de aplicar.",
+    );
+  return {
+    ...workspace,
+    fiscalReferenceVersion: NFSE_FISCAL_REFERENCE_VERSION,
+    issuer: { ...workspace.issuer, ...confirmedNfseIssuer },
+    settings: { ...workspace.settings, ...confirmedNfseSettings },
+  };
 }
